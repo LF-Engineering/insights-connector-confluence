@@ -21,6 +21,82 @@ definitions:
       Name:
         type: string
         example: Confluence
-      URL:
+  DataSourceInstance:
+    type: object
+    properties:
+      Slug:
+        type: string
+        example: confluence
+      Endpoint:
         type: string
         example: https://wiki.lfnetworking.org
+      Id:
+        type: string
+        example: 1234567890abcdef
+      User:
+        type: string
+        x-nullable: true
+        example: myUserName
+      Token:
+        type: string
+        x-nullable: true
+        example: token-value
+  Metadata:
+    type: object
+    properties:
+      BackendName:
+        type: string
+        example: ds-confluence
+      BackendVersion:
+        type: string
+        example: v0.1.0
+      Tags:
+        type: array
+        items:
+          type: string
+          example: my-tag
+  Documentation:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      createdAt:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
+      updatedAt:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
+      dataSourceId:
+        type: string
+        example: confluence
+        description: data source type slug (FK)
+      dataSourceInstanceId:
+        type: string
+        example: 1234567890abcdef
+        description: data source instance id (FK)
+  Event:
+    type: object
+    properties:
+      Documentation:
+        type: object
+        $ref: "#/definitions/Documentation"
+  Data:
+    type: object
+    properties:
+      DataSource:
+        type: object
+        $ref: "#/definitions/DataSource"
+      DataSourceInstance:
+        type: object
+        $ref: "#/definitions/DataSourceInstance"
+      MetaData:
+        type: object
+        $ref: "#/definitions/Metadata"
+      Events:
+        type: array
+        items:
+          $ref: "#/definitions/Event"
