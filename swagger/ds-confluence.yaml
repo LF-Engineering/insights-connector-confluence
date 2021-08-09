@@ -1,0 +1,26 @@
+---
+swagger: '2.0'
+info:
+  title: Confluence data source
+  version: '1.0'
+  description: Confluence data source V2
+paths:
+  /noop:
+    get:
+      description: no-op
+      responses:
+        200:
+          description: Success
+definitions:
+  DataSource:
+    type: object
+    properties:
+      Slug:
+        type: string
+        example: confluence
+      Name:
+        type: string
+        example: Confluence
+      URL:
+        type: string
+        example: https://wiki.lfnetworking.org

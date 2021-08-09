@@ -13,3 +13,33 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+# VIM
+*.swp
+
+# Go binary
+ds-confluence
+
+# Others
+out
+
+# golang output binary directory
+bin
+
+# golang vendor (dependencies) directory
+vendor
+
+# ignore all go swagger generated files except the configuration one
+gen/restapi/*
+gen/models/*
+#!gen/restapi/configure_ds_confluence.go
+
+.env
+
+# Binaries
+main
+
+# Sensitive files
+*.dump
+*.token
+*.secret
