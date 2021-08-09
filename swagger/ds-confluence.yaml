@@ -260,7 +260,7 @@ definitions:
         example: '2019-09-02 03:00:33.000000'
   ObjectProperty:
     type: object
-    description: generic table to hold additional properties in othe rtables, here used for the Documentation table
+    description: generic table to hold additional properties in other tables, here used for the Documentation table
     properties:
       ObjectId:
         type: string

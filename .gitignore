@@ -18,7 +18,7 @@
 *.swp
 
 # Go binary
-ds-confluence
+dsconfluence
 
 # Others
 out
