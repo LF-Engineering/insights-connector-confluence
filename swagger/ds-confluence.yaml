@@ -4,13 +4,13 @@ info:
   title: Confluence data source
   version: '1.0'
   description: Confluence data source V2
-paths:
+paths:    # swagger forces me to add at least one path
   /noop:
     get:
       description: no-op
       responses:
         200:
-          description: Success
+          description: ok
 definitions:
   DataSource:
     type: object
@@ -55,15 +55,6 @@ definitions:
         items:
           type: string
           example: my-tag
-  DocumentType:
-    type: object
-    properties:
-      Id:
-        type: string
-        example: 1234567890abcdef
-      Type:
-        type: string
-        example: Confluence page
   Documentation:
     type: object
     properties:
@@ -85,6 +76,10 @@ definitions:
       URL:
         type: string
         example: https://wiki.onap.org/display/DW/Continuous+Integration
+      Space:
+        type: string
+        example: faq
+        x-nullable: true
       DataSourceId:
         type: string
         example: confluence
@@ -101,6 +96,15 @@ definitions:
         type: string
         example: cncf/k8s
         description: Slug points to project (FK), we don't store project data here, project data comes from onboarding
+  DocumentType:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+      Type:
+        type: string
+        example: Confluence page
   Version:
     type: object
     properties:
@@ -119,8 +123,144 @@ definitions:
       VersionId:
         type: string
         example: 1234567890abcdef
+  DocumentationHierarchy:
+    type: object
+    properties:
+      DocumentationId:
+        type: string
+        example: 1234567890abcdef
+      ParentDocumentationId:
+        type: string
+        example: 1234567890abcdef
+  DocumentActivity:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      CreatedAt:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
+      DocumentationId:
+        type: string
+        example: 1234567890abcdef
+      DocumentActivityTypeId:
+        type: string
+        example: 1234567890abcdef
+      Body:
+        type: string
+        description: can store comment body (if activity is a comment) or page content (if activity is created or edited)
+        example: My comment body
+        x-nullable: true
+      IdentityId:
+        type: string
+        description: activity creator
+        example: 1234567890abcdef
+  DocumentActivityType:
+    type: object
+    description: enum for possible documentation activities
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+      Name:
+        type: string
+        example: status
+        description: when you want to set some object's status
+  ProjectDataSourceIdentity:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+        description: PK - up to 50 chars
+      Name:
+        type: string
+        example: Lukasz Gryglicki
+      Userame:
+        type: string
+        example: lgryglicki
+      Email:
+        type: string
+        example: lgryglicki@cncf.io
+      DataSourceId:
+        type: string
+        example: confluence
+        description: data source type slug (FK)
+      AvatarURL:
+        type: string
+        example: https://avatars.githubusercontent.com/u/13455738?v=4
+  UserIdentity:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+      UserId:
+        type: string
+        example: 1234567890abcdef
+      IdentityId:
+        type: string
+        example: 1234567890abcdef
+  User:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+      FirstName:
+        type: string
+        example: Lukasz
+      LastName:
+        type: string
+        example: Gryglicki
+      Username:
+        type: string
+        example: lgryglicki
+      Gender:
+        type: string
+        example: male
+        x-nullable: true
+      Bio:
+        type: string
+        x-nullable: true
+      LogoURL:
+        type: string
+        x-nullable: true
+      Title:
+        type: string
+        x-nullable: true
+      GitHubHandle:
+        type: string
+        x-nullable: true
+      Twitterhandle:
+        type: string
+        x-nullable: true
+      LinkedInHandle:
+        type: string
+        x-nullable: true
+      Phone:
+        type: string
+        x-nullable: true
+      Source:
+        type: string
+      CreatedBy:
+        type: string
+      CreatedAt:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
+      UpdatedBy:
+        type: string
+      UpdatedAt:
+        type: string
+        format: date-time
+        example: '2019-09-02 03:00:33.000000'
   ObjectProperty:
     type: object
+    description: generic table to hold additional properties in othe rtables, here used for the Documentation table
     properties:
       ObjectId:
         type: string
@@ -132,6 +272,7 @@ definitions:
         description: FK to object property type (can be for example status)
   ObjectPropertyType:
     type: object
+    description: enum for possible additional properties
     properties:
       Id:
         type: string
@@ -142,6 +283,7 @@ definitions:
         description: when you want to set some object's status
   Event:
     type: object
+    description: single event in Confluence is a page, it also includes its extra properties, version data, hierarchy etc.
     properties:
       Documentation:
         type: object
@@ -158,6 +300,14 @@ definitions:
         type: array
         items:
           $ref: "#/definitions/ObjectProperty"
+      Hierarchy:
+        type: array
+        items:
+          $ref: "#/definitions/DocumentationHierarchy"
+      DocumentActivities:
+        type: array
+        items:
+          $ref: "#/definitions/DocumentActivity"
   SharedData:
     type: object
     description: some shared objects, like document types - to avoid repeating entire objects in each event
@@ -172,8 +322,26 @@ definitions:
         description: we keep Documentation object status in ObjectPropertyType named status
         items:
           $ref: "#/definitions/ObjectPropertyType"
+      DocumentActivityTypes:
+        type: array
+        description: possible document activity types like created, commented, edited etc.
+        items:
+          $ref: "#/definitions/DocumentActivityType"
+      Identities:
+        type: array
+        items:
+          $ref: "#/definitions/ProjectDataSourceIdentity"
+      UserIdentities:
+        type: array
+        items:
+          $ref: "#/definitions/UserIdentity"
+      Users:
+        type: array
+        items:
+          $ref: "#/definitions/User"
   Data:
     type: object
+    description: this is the final output of ds-confluence
     properties:
       DataSource:
         type: object
