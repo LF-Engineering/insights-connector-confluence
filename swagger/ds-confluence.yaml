@@ -71,23 +71,29 @@ definitions:
         type: string
         example: 1234567890abcdef
         description: PK - up to 50 chars
-      createdAt:
+      CreatedAt:
         type: string
         format: date-time
         example: '2019-09-02 03:00:33.000000'
-      updatedAt:
+      UpdatedAt:
         type: string
         format: date-time
         example: '2019-09-02 03:00:33.000000'
-      dataSourceId:
+      Title:
+        type: string
+        example: My page
+      URL:
+        type: string
+        example: https://wiki.onap.org/display/DW/Continuous+Integration
+      DataSourceId:
         type: string
         example: confluence
         description: data source type slug (FK)
-      dataSourceInstanceId:
+      DataSourceInstanceId:
         type: string
         example: 1234567890abcdef
         description: data source instance id (FK)
-      documentTypeId:
+      DocumentTypeId:
         type: string
         example: 1234567890abcdef
         description: document type id (FK)
@@ -95,20 +101,77 @@ definitions:
         type: string
         example: cncf/k8s
         description: Slug points to project (FK), we don't store project data here, project data comes from onboarding
+  Version:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+      Version:
+        type: string
+        example: v1.2.3
+  DocumentVersion:
+    type: object
+    properties:
+      DocumentId:
+        type: string
+        example: 1234567890abcdef
+      VersionId:
+        type: string
+        example: 1234567890abcdef
+  ObjectProperty:
+    type: object
+    properties:
+      ObjectId:
+        type: string
+        example: 1234567890abcdef
+        description: FK to an object (here in Confluence this is Documentation.Id)
+      ObjectPropertyTypeId:
+        type: string
+        example: 1234567890abcdef
+        description: FK to object property type (can be for example status)
+  ObjectPropertyType:
+    type: object
+    properties:
+      Id:
+        type: string
+        example: 1234567890abcdef
+      Name:
+        type: string
+        example: status
+        description: when you want to set some object's status
   Event:
     type: object
     properties:
       Documentation:
         type: object
         $ref: "#/definitions/Documentation"
+      Versions:
+        type: array
+        items:
+          $ref: "#/definitions/Version"
+      DocumentVersions:
+        type: array
+        items:
+          $ref: "#/definitions/DocumentVersion"
+      ObjectProperties:
+        type: array
+        items:
+          $ref: "#/definitions/ObjectProperty"
   SharedData:
     type: object
     description: some shared objects, like document types - to avoid repeating entire objects in each event
     properties:
       DocumentTypes:
         type: array
+        description: we need to store confluence documents types here
         items:
           $ref: "#/definitions/DocumentType"
+      ObjectPropertyTypes:
+        type: array
+        description: we keep Documentation object status in ObjectPropertyType named status
+        items:
+          $ref: "#/definitions/ObjectPropertyType"
   Data:
     type: object
     properties:
