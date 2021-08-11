@@ -693,6 +693,11 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 		}
 		rich["body"] = body
 	}
+	iAvatar, ok := shared.Dig(page, []string{"version", "by", "profilePicture", "path"}, false, true)
+	if ok {
+		avatar, _ := iAvatar.(string)
+		rich["avatar"] = j.URL + avatar
+	}
 	// From shared
 	rich["metadata__enriched_on"] = time.Now()
 	// rich[ProjectSlug] = ctx.ProjectSlug
@@ -717,6 +722,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		docUUID, _ := doc["uuid"].(string)
 		actUUID := shared.UUIDNonEmpty(ctx, docUUID, shared.ToESDate(updatedOn))
 		body, _ := doc["body"].(string)
+		avatar, _ := doc["avatar"].(string)
 		event := &models.Event{
 			DocumentActivity: &models.DocumentActivity{
 				DocumentActivityType: typ,
@@ -724,7 +730,14 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 				ID:                   actUUID,
 				Body:                 &body,
 				//Documentation *Documentation `json:"Documentation,omitempty"`
-				//Identity *Identity `json:"Identity,omitempty"`
+				Identity: &models.Identity{
+					AvatarURL:    avatar,
+					DataSourceID: "confluence",
+					// Email string `json:"Email,omitempty"`
+					// ID string `json:"Id,omitempty"`
+					// Name string `json:"Name,omitempty"`
+					// Userame string `json:"Userame,omitempty"`
+				},
 			},
 		}
 		data.Events = append(data.Events, event)

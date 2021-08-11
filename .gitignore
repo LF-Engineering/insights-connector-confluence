@@ -22,6 +22,7 @@ vendor/
 
 # Others
 out
+xxx
 
 # golang output binary directory
 bin
