@@ -18,7 +18,7 @@ vendor/
 *.swp
 
 # Go binary
-confluence
+/confluence
 
 # Others
 out
