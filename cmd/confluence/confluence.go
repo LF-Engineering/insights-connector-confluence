@@ -679,6 +679,7 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 	if iType.(string) == "page" && int(iVersion.(float64)) == 1 {
 		rich["type"] = "new_page"
 	}
+	rich["original_type"] = iType
 	rich["is_blogpost"] = 0
 	tp, _ := rich["type"].(string)
 	rich["is_"+tp] = 1
@@ -738,17 +739,32 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 	}
 	source := data.DataSource.Slug
 	for _, iDoc := range docs {
+		var (
+			createdAt time.Time
+			body      string
+			space     string
+		)
 		doc, _ := iDoc.(map[string]interface{})
 		// shared.Printf("rich %+v\n", doc)
 		typ, _ := doc["type"].(string)
 		typ = "confluence_" + typ
+		origType, _ := doc["original_type"].(string)
+		origType = "confluence_" + origType
 		iUpdatedOn, _ := doc["updated_on"]
 		updatedOn, err := shared.TimeParseInterfaceString(iUpdatedOn)
 		shared.FatalOnError(err)
+		if typ == "confluence_new_page" {
+			createdAt = updatedOn
+		}
 		docUUID, _ := doc["uuid"].(string)
 		actUUID := shared.UUIDNonEmpty(ctx, docUUID, shared.ToESDate(updatedOn))
-		body, _ := doc["body"].(string)
+		body, _ = doc["body"].(string)
 		avatar, _ := doc["avatar"].(string)
+		internalID, _ := doc["id"].(string)
+		title, _ := doc["title"].(string)
+		url, _ := doc["url"].(string)
+		space, _ = doc["space"].(string)
+		version, _ := doc["version"].(string)
 		name, _ := doc["by_name"].(string)
 		username, _ := doc["by_username"].(string)
 		email, _ := doc["by_email"].(string)
@@ -760,15 +776,32 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 				CreatedAt:            strfmt.DateTime(updatedOn),
 				ID:                   actUUID,
 				Body:                 &body,
-				//Documentation *Documentation `json:"Documentation,omitempty"`
 				Identity: &models.Identity{
 					ID:           userUUID,
 					AvatarURL:    avatar,
-					DataSourceID: "confluence",
+					DataSourceID: source,
 					Name:         name,
 					Username:     username,
 					Email:        email,
 				},
+				Documentation: &models.Documentation{
+					ID:              docUUID,
+					InternalID:      internalID,
+					CreatedAt:       strfmt.DateTime(createdAt),
+					UpdatedAt:       strfmt.DateTime(updatedOn), // this is only set for confluence_new_page
+					Title:           title,
+					URL:             url,
+					Space:           &space,
+					DataSourceID:    source,
+					DocumentType:    origType,
+					DocumentVersion: version,
+				},
+				/*
+					Ancestors []*Ancestor `json:"Ancestors"`
+					InternalID string `json:"InternalId,omitempty"`
+					Slug string `json:"Slug,omitempty"`
+					Space *string `json:"Space,omitempty"`
+				*/
 			},
 		}
 		data.Events = append(data.Events, event)
