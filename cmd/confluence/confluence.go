@@ -130,7 +130,28 @@ func (j *DSConfluence) Init(ctx *shared.Ctx) (err error) {
 	return
 }
 
-func getConfluenceData() (data *models.Data, err error) {
+// Sync - sync confluence data source
+func (j *DSConfluence) Sync(ctx *shared.Ctx) (data *models.Data, err error) {
+	_ = shared.GetThreadsNum(ctx)
+	if ctx.DateFrom == nil {
+		ctx.DateFrom = shared.GetLastUpdate(ctx, j.URL)
+	}
+	/*
+		if !ctx.NoRaw {
+			err = lib.FetchRaw(ctx, ds)
+			if err != nil {
+				lib.Printf("%s: FetchRaw(%s) error: %v\n", ds.Info(), ctx.Info(), err)
+				return
+			}
+		}
+		if ctx.Enrich {
+			err = lib.Enrich(ctx, ds)
+			if err != nil {
+				lib.Printf("%s: Enrich(%s) error: %v\n", ds.Info(), ctx.Info(), err)
+				return
+			}
+		}
+	*/
 	data = &models.Data{}
 	return
 }
@@ -145,7 +166,7 @@ func main() {
 		fmt.Printf("Error: %+v\n", err)
 		return
 	}
-	data, err := getConfluenceData()
+	data, err := confluence.Sync(&ctx)
 	if err != nil {
 		fmt.Printf("Error: %+v\n", err)
 		return
