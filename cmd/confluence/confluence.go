@@ -650,6 +650,7 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 		rich["space"] = space
 	}
 	var (
+		ancestorIDs    []interface{}
 		ancestorTitles []interface{}
 		ancestorLinks  []interface{}
 	)
@@ -662,6 +663,8 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 				if !ok {
 					continue
 				}
+				ancestorID, ok := ancestor["id"]
+				ancestorIDs = append(ancestorIDs, ancestorID)
 				ancestorTitle, ok := ancestor["title"]
 				if ok {
 					ancestorTitles = append(ancestorTitles, ancestorTitle)
@@ -669,10 +672,13 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 					ancestorTitles = append(ancestorTitles, "NO_TITLE")
 				}
 				ancestorLink, _ := shared.Dig(ancestor, []string{"_links", "webui"}, true, false)
-				ancestorLinks = append(ancestorLinks, ancestorLink)
+				sAncestorLink, _ := ancestorLink.(string)
+				sAncestorLink = j.URL + sAncestorLink
+				ancestorLinks = append(ancestorLinks, sAncestorLink)
 			}
 		}
 	}
+	rich["ancestors_ids"] = ancestorIDs
 	rich["ancestors_titles"] = ancestorTitles
 	rich["ancestors_links"] = ancestorLinks
 	iType, _ := shared.Dig(page, []string{"type"}, true, false)
@@ -743,6 +749,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 			createdAt time.Time
 			body      string
 			space     string
+			ancestors []*models.Ancestor
 		)
 		doc, _ := iDoc.(map[string]interface{})
 		// shared.Printf("rich %+v\n", doc)
@@ -764,12 +771,32 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		title, _ := doc["title"].(string)
 		url, _ := doc["url"].(string)
 		space, _ = doc["space"].(string)
-		version, _ := doc["version"].(string)
+		version, _ := doc["version"].(float64)
 		name, _ := doc["by_name"].(string)
 		username, _ := doc["by_username"].(string)
 		email, _ := doc["by_email"].(string)
 		name, username = shared.PostprocessNameUsername(name, username, email)
 		userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+		iAIDs, ok := doc["ancestors_ids"]
+		if ok {
+			aIDs, ok := iAIDs.([]interface{})
+			if ok {
+				iATitles, _ := doc["ancestors_titles"]
+				iALinks, _ := doc["ancestors_links"]
+				aTitles, _ := iATitles.([]interface{})
+				aLinks, _ := iALinks.([]interface{})
+				for i, aID := range aIDs {
+					aid, _ := aID.(string)
+					aTitle, _ := aTitles[i].(string)
+					aLink, _ := aLinks[i].(string)
+					ancestors = append(ancestors, &models.Ancestor{
+						InternalID: aid,
+						Title:      aTitle,
+						URL:        aLink,
+					})
+				}
+			}
+		}
 		event := &models.Event{
 			DocumentActivity: &models.DocumentActivity{
 				DocumentActivityType: typ,
@@ -794,14 +821,10 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 					Space:           &space,
 					DataSourceID:    source,
 					DocumentType:    origType,
-					DocumentVersion: version,
-          Slug:            ctx.Project, // FIXME: We point to a project specified from the configuration - but aren't given documentation pages already connected to projects via onboarding?
+					DocumentVersion: fmt.Sprintf("%.0f", version),
+					Slug:            ctx.Project, // FIXME: We point to a project specified from the configuration - but aren't given documentation pages already connected to projects via onboarding?
+					Ancestors:       ancestors,
 				},
-				/*
-					Ancestors []*Ancestor `json:"Ancestors"`
-					Slug string `json:"Slug,omitempty"`
-					Space *string `json:"Space,omitempty"`
-				*/
 			},
 		}
 		data.Events = append(data.Events, event)
