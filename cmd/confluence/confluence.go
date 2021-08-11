@@ -26,6 +26,9 @@ var (
 	ConfluenceDefaultMaxContents = 1000
 	// ConfluenceDefaultSearchField - default search field
 	ConfluenceDefaultSearchField = "item_id"
+	// ConfluenceDataSource - constant
+	ConfluenceDataSource = &models.DataSource{Name: "Confluence", Slug: "confluence"}
+	gConfluenceMetaData  = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
 )
 
 // DSConfluence - DS implementation for confluence - does nothing at all, just presents a skeleton code
@@ -101,6 +104,8 @@ func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
 		j.Token = base64.StdEncoding.EncodeToString([]byte(j.User + ":" + j.Token))
 		shared.AddRedacted(j.Token, false)
 	}
+	gConfluenceMetaData.Project = ctx.Project
+	gConfluenceMetaData.Tags = ctx.Tags
 	return
 }
 
@@ -668,7 +673,10 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 
 // GetModelData - return data in swagger format
 func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *models.Data) {
-	data = &models.Data{}
+	data = &models.Data{
+		DataSource: ConfluenceDataSource,
+		MetaData:   gConfluenceMetaData,
+	}
 	return
 }
 
