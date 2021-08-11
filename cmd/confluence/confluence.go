@@ -135,6 +135,14 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (data *models.Data, err error) {
 	_ = shared.GetThreadsNum(ctx)
 	if ctx.DateFrom == nil {
 		ctx.DateFrom = shared.GetLastUpdate(ctx, j.URL)
+		// FIXME
+		// shared.SetLastUpdate(ctx, j.URL, time.Now())
+	}
+	if ctx.DateFrom != nil {
+		shared.Printf("%s resuming from %v\n", j.URL, ctx.DateFrom)
+	}
+	if ctx.DateTo != nil {
+		shared.Printf("%s fetching till %v\n", j.URL, ctx.DateTo)
 	}
 	/*
 		if !ctx.NoRaw {
