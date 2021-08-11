@@ -420,6 +420,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	next := "i"
 	var (
 		ch             chan error
+		allDocs        []interface{}
 		allContents    []interface{}
 		allContentsMtx *sync.Mutex
 		escha          []chan error
@@ -465,7 +466,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 						c <- ee
 					}
 				}()
-				ee = j.ConfluenceEnrichItems(ctx, thrN, allContents)
+				ee = j.ConfluenceEnrichItems(ctx, thrN, allContents, &allDocs, false)
 				if ee != nil {
 					shared.Printf("error %v sending %d historical contents to queue\n", ee, len(allContents))
 				}
@@ -569,11 +570,9 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	if ctx.Debug > 0 {
 		shared.Printf("%d remaining contents to send to queue\n", nContents)
 	}
-	if nContents > 0 {
-		err = j.ConfluenceEnrichItems(ctx, thrN, allContents)
-		if err != nil {
-			shared.Printf("Error %v sending %d contents to queue\n", err, len(allContents))
-		}
+	err = j.ConfluenceEnrichItems(ctx, thrN, allContents, &allDocs, true)
+	if err != nil {
+		shared.Printf("Error %v sending %d contents to queue\n", err, len(allContents))
 	}
 	return
 }
@@ -696,12 +695,13 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 
 // ConfluenceEnrichItems - iterate items and enrich them
 // items is a current pack of input items
-func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []interface{}) (err error) {
-	docs := []interface{}{}
+// docs is a pointer to where extracted identities will be stored
+func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []interface{}, docs *[]interface{}, final bool) (err error) {
+	shared.Printf("input processing(%d/%d/%v)\n", len(items), len(*docs), final)
 	outputDocs := func() {
-		if len(docs) > 0 {
+		if len(*docs) > 0 {
 			// actual output
-			shared.Printf("final processing(%d)\n", len(docs))
+			shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
 			// FIXME
 			data := &models.Data{}
 			jsonBytes, err := jsoniter.Marshal(data)
@@ -710,14 +710,16 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 				return
 			}
 			shared.Printf("%s\n", string(jsonBytes))
-			docs = []interface{}{}
+			*docs = []interface{}{}
 		}
 	}
-	defer func() {
-		outputDocs()
-	}()
+	if final {
+		defer func() {
+			outputDocs()
+		}()
+	}
 	if ctx.Debug > 0 {
-		shared.Printf("confluence enrich items %d/%d\n", len(items))
+		shared.Printf("confluence enrich items %d\n", len(items))
 	}
 	var (
 		mtx *sync.RWMutex
@@ -754,8 +756,8 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 		if thrN > 1 {
 			mtx.Lock()
 		}
-		docs = append(docs, rich)
-		if len(docs) >= ctx.PackSize {
+		*docs = append(*docs, rich)
+		if len(*docs) >= ctx.PackSize {
 			outputDocs()
 		}
 		if thrN > 1 {
