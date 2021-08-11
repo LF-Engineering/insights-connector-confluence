@@ -20,13 +20,15 @@ import (
 const (
 	// ConfluenceBackendVersion - backend version
 	ConfluenceBackendVersion = "0.1.0"
-)
-
-var (
 	// ConfluenceDefaultMaxContents - max contents to fetch at a time
 	ConfluenceDefaultMaxContents = 1000
 	// ConfluenceDefaultSearchField - default search field
 	ConfluenceDefaultSearchField = "item_id"
+)
+
+var (
+	gMaxUpdatedAt    time.Time
+	gMaxUpdatedAtMtx = &sync.Mutex{}
 	// ConfluenceDataSource - constant
 	ConfluenceDataSource = &models.DataSource{Name: "Confluence", Slug: "confluence"}
 	gConfluenceMetaData  = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
@@ -405,8 +407,6 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	thrN := shared.GetThreadsNum(ctx)
 	if ctx.DateFrom == nil {
 		ctx.DateFrom = shared.GetLastUpdate(ctx, j.URL)
-		// FIXME
-		// shared.SetLastUpdate(ctx, j.URL, time.Now())
 	}
 	if ctx.DateFrom != nil {
 		shared.Printf("%s resuming from %v\n", j.URL, ctx.DateFrom)
@@ -591,6 +591,9 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	if err != nil {
 		shared.Printf("Error %v sending %d contents to queue\n", err, len(allContents))
 	}
+	gMaxUpdatedAtMtx.Lock()
+	defer gMaxUpdatedAtMtx.Unlock()
+	shared.SetLastUpdate(ctx, j.URL, gMaxUpdatedAt)
 	return
 }
 
@@ -763,6 +766,11 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		if typ == "confluence_new_page" {
 			createdAt = updatedOn
 		}
+		gMaxUpdatedAtMtx.Lock()
+		if updatedOn.After(gMaxUpdatedAt) {
+			gMaxUpdatedAt = updatedOn
+		}
+		gMaxUpdatedAtMtx.Unlock()
 		docUUID, _ := doc["uuid"].(string)
 		actUUID := shared.UUIDNonEmpty(ctx, docUUID, shared.ToESDate(updatedOn))
 		body, _ = doc["body"].(string)
@@ -841,8 +849,8 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 		if len(*docs) > 0 {
 			// actual output
 			shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
-			// FIXME
 			data := j.GetModelData(ctx, *docs)
+			// FIXME: actual output to some consumer...
 			jsonBytes, err := jsoniter.Marshal(data)
 			if err != nil {
 				shared.Printf("Error: %+v\n", err)
