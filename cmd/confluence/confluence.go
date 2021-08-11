@@ -698,10 +698,35 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 		avatar, _ := iAvatar.(string)
 		rich["avatar"] = j.URL + avatar
 	}
+	rich["by_name"], rich["by_username"], rich["by_email"] = j.GetRoleIdentity(item)
 	// From shared
 	rich["metadata__enriched_on"] = time.Now()
 	// rich[ProjectSlug] = ctx.ProjectSlug
 	// rich["groups"] = ctx.Groups
+	return
+}
+
+// GetRoleIdentity - return identity data
+func (j *DSConfluence) GetRoleIdentity(item map[string]interface{}) (name, username, email string) {
+	iUser, ok := shared.Dig(item, []string{"data", "version", "by"}, true, false)
+	user, _ := iUser.(map[string]interface{})
+	iUserName, ok := user["username"]
+	if ok {
+		username, _ = iUserName.(string)
+	} else {
+		iPublicName, ok := user["publicName"]
+		if ok {
+			username, _ = iPublicName.(string)
+		}
+	}
+	iDisplayName, ok := user["displayName"]
+	if ok {
+		name, _ = iDisplayName.(string)
+	}
+	iEmail, ok := user["email"]
+	if ok {
+		email, _ = iEmail.(string)
+	}
 	return
 }
 
@@ -711,6 +736,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		DataSource: ConfluenceDataSource,
 		MetaData:   gConfluenceMetaData,
 	}
+	source := data.DataSource.Slug
 	for _, iDoc := range docs {
 		doc, _ := iDoc.(map[string]interface{})
 		// shared.Printf("rich %+v\n", doc)
@@ -723,6 +749,11 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		actUUID := shared.UUIDNonEmpty(ctx, docUUID, shared.ToESDate(updatedOn))
 		body, _ := doc["body"].(string)
 		avatar, _ := doc["avatar"].(string)
+		name, _ := doc["by_name"].(string)
+		username, _ := doc["by_username"].(string)
+		email, _ := doc["by_email"].(string)
+		name, username = shared.PostprocessNameUsername(name, username, email)
+		userUUID := shared.UUIDAffs(ctx, source, email, name, username)
 		event := &models.Event{
 			DocumentActivity: &models.DocumentActivity{
 				DocumentActivityType: typ,
@@ -731,12 +762,12 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 				Body:                 &body,
 				//Documentation *Documentation `json:"Documentation,omitempty"`
 				Identity: &models.Identity{
+					ID:           userUUID,
 					AvatarURL:    avatar,
 					DataSourceID: "confluence",
-					// Email string `json:"Email,omitempty"`
-					// ID string `json:"Id,omitempty"`
-					// Name string `json:"Name,omitempty"`
-					// Userame string `json:"Userame,omitempty"`
+					Name:         name,
+					Username:     username,
+					Email:        email,
 				},
 			},
 		}

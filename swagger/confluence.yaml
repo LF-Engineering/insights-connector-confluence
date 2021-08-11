@@ -61,7 +61,7 @@ definitions:
       Name:
         type: string
         example: Lukasz Gryglicki
-      Userame:
+      Username:
         type: string
         example: lgryglicki
       Email:
