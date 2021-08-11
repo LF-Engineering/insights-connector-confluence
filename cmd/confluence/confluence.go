@@ -795,10 +795,10 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 					DataSourceID:    source,
 					DocumentType:    origType,
 					DocumentVersion: version,
+          Slug:            ctx.Project, // FIXME: We point to a project specified from the configuration - but aren't given documentation pages already connected to projects via onboarding?
 				},
 				/*
 					Ancestors []*Ancestor `json:"Ancestors"`
-					InternalID string `json:"InternalId,omitempty"`
 					Slug string `json:"Slug,omitempty"`
 					Space *string `json:"Space,omitempty"`
 				*/
