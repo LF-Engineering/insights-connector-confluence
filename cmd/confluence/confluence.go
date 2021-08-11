@@ -579,117 +579,96 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 
 // EnrichItem - return rich item from raw item for a given author type
 func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) (rich map[string]interface{}, err error) {
+	// shared.Printf("%+v\n", item)
 	rich = make(map[string]interface{})
-	/*
-		for _, field := range RawFields {
-			v, _ := item[field]
-			rich[field] = v
-		}
-		page, ok := item["data"].(map[string]interface{})
-		if !ok {
-			err = fmt.Errorf("missing data field in item %+v", DumpKeys(item))
-			return
-		}
-		for _, field := range []string{"type", "id", "status", "title", "content_url"} {
-			rich[field], _ = page[field]
-		}
-		title := ""
-		iTitle, ok := page["title"]
+	for _, field := range shared.RawFields {
+		v, _ := item[field]
+		rich[field] = v
+	}
+	page, ok := item["data"].(map[string]interface{})
+	if !ok {
+		err = fmt.Errorf("missing data field in item %+v", shared.DumpKeys(item))
+		return
+	}
+	for _, field := range []string{"type", "id", "status", "title", "content_url"} {
+		rich[field], _ = page[field]
+	}
+	title := ""
+	iTitle, ok := page["title"]
+	if ok {
+		title, _ = iTitle.(string)
+	}
+	if len(title) > shared.KeywordMaxlength {
+		title = title[:shared.KeywordMaxlength]
+	}
+	rich["title"] = title
+	version, ok := page["version"].(map[string]interface{})
+	if !ok {
+		err = fmt.Errorf("missing version field in item %+v", shared.DumpKeys(page))
+		return
+	}
+	user, _ := shared.Dig(version, []string{"by"}, true, false)
+	rich["by"] = user
+	rich["message"], _ = shared.Dig(version, []string{"message"}, false, true)
+	iVersion, _ := version["number"]
+	rich["version"] = iVersion
+	rich["date"], _ = version["when"]
+	////base, _ := shared.Dig(page, []string{"_links", "base"}, true, false)
+	webUI, _ := shared.Dig(page, []string{"_links", "webui"}, true, false)
+	////rich["url"] = base.(string) + webUI.(string)
+	rich["url"] = j.URL + webUI.(string)
+	iSpace, ok := shared.Dig(page, []string{"_expandable", "space"}, false, true)
+	if ok {
+		space, _ := iSpace.(string)
+		space = strings.Replace(space, "/rest/api/space/", "", -1)
+		rich["space"] = space
+	}
+	var (
+		ancestorTitles []interface{}
+		ancestorLinks  []interface{}
+	)
+	iAncestors, ok := shared.Dig(page, []string{"ancestors"}, false, true)
+	if ok {
+		ancestors, ok := iAncestors.([]interface{})
 		if ok {
-			title, _ = iTitle.(string)
-		}
-		rich["title_analyzed"] = title
-		if len(title) > KeywordMaxlength {
-			title = title[:KeywordMaxlength]
-		}
-		rich["title"] = title
-		version, ok := page["version"].(map[string]interface{})
-		if !ok {
-			err = fmt.Errorf("missing version field in item %+v", DumpKeys(page))
-			return
-		}
-		userName, ok := Dig(version, []string{"by", "username"}, false, true)
-		if ok {
-			rich["author_name"] = userName
-		} else {
-			rich["author_name"], _ = Dig(version, []string{"by", "displayName"}, true, false)
-		}
-		rich["message"], _ = Dig(version, []string{"message"}, false, true)
-		iVersion, _ := version["number"]
-		rich["version"] = iVersion
-		rich["date"], _ = version["when"]
-		////base, _ := Dig(page, []string{"_links", "base"}, true, false)
-		webUI, _ := Dig(page, []string{"_links", "webui"}, true, false)
-		////rich["url"] = base.(string) + webUI.(string)
-		rich["url"] = j.URL + webUI.(string)
-		iSpace, ok := Dig(page, []string{"_expandable", "space"}, false, true)
-		if ok {
-			space, _ := iSpace.(string)
-			space = strings.Replace(space, "/rest/api/space/", "", -1)
-			rich["space"] = space
-		}
-		var (
-			ancestorTitles []interface{}
-			ancestorLinks  []interface{}
-		)
-		iAncestors, ok := Dig(page, []string{"ancestors"}, false, true)
-		if ok {
-			ancestors, ok := iAncestors.([]interface{})
-			if ok {
-				for _, iAncestor := range ancestors {
-					ancestor, ok := iAncestor.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					ancestorTitle, ok := ancestor["title"]
-					if ok {
-						ancestorTitles = append(ancestorTitles, ancestorTitle)
-					} else {
-						ancestorTitles = append(ancestorTitles, "NO_TITLE")
-					}
-					ancestorLink, _ := Dig(ancestor, []string{"_links", "webui"}, true, false)
-					ancestorLinks = append(ancestorLinks, ancestorLink)
+			for _, iAncestor := range ancestors {
+				ancestor, ok := iAncestor.(map[string]interface{})
+				if !ok {
+					continue
 				}
+				ancestorTitle, ok := ancestor["title"]
+				if ok {
+					ancestorTitles = append(ancestorTitles, ancestorTitle)
+				} else {
+					ancestorTitles = append(ancestorTitles, "NO_TITLE")
+				}
+				ancestorLink, _ := shared.Dig(ancestor, []string{"_links", "webui"}, true, false)
+				ancestorLinks = append(ancestorLinks, ancestorLink)
 			}
 		}
-		rich["ancestors_titles"] = ancestorTitles
-		rich["ancestors_links"] = ancestorLinks
-		iType, _ := Dig(page, []string{"type"}, true, false)
-		if iType.(string) == "page" && int(iVersion.(float64)) == 1 {
-			rich["type"] = "new_page"
-		}
-		rich["is_blogpost"] = 0
-		tp, _ := rich["type"].(string)
-		rich["is_"+tp] = 1
-		// can also be rich["date"]
-		updatedOn, _ := Dig(item, []string{j.DateField(ctx)}, true, false)
-		if affs {
-			authorKey := "by"
-			var affsItems map[string]interface{}
-			affsItems, err = j.AffsItems(ctx, item, ConfluenceContentRoles, updatedOn)
-			if err != nil {
-				return
-			}
-			for prop, value := range affsItems {
-				rich[prop] = value
-			}
-			for _, suff := range AffsFields {
-				rich[Author+suff] = rich[authorKey+suff]
-			}
-			orgsKey := authorKey + MultiOrgNames
-			_, ok := Dig(rich, []string{orgsKey}, false, true)
-			if !ok {
-				rich[orgsKey] = []interface{}{}
-			}
-		}
-		for prop, value := range CommonFields(j, updatedOn, Confluence) {
-			rich[prop] = value
-		}
-		// From shared
-		rich["metadata__enriched_on"] = time.Now()
-		// rich[ProjectSlug] = ctx.ProjectSlug
-		// rich["groups"] = ctx.Groups
-	*/
+	}
+	rich["ancestors_titles"] = ancestorTitles
+	rich["ancestors_links"] = ancestorLinks
+	iType, _ := shared.Dig(page, []string{"type"}, true, false)
+	if iType.(string) == "page" && int(iVersion.(float64)) == 1 {
+		rich["type"] = "new_page"
+	}
+	rich["is_blogpost"] = 0
+	tp, _ := rich["type"].(string)
+	rich["is_"+tp] = 1
+	// can also be rich["date"]
+	updatedOn, _ := shared.Dig(item, []string{"metadata__updated_on"}, true, false)
+	rich["updated_on"] = updatedOn
+	// From shared
+	rich["metadata__enriched_on"] = time.Now()
+	// rich[ProjectSlug] = ctx.ProjectSlug
+	// rich["groups"] = ctx.Groups
+	return
+}
+
+// GetModelData - return data in swagger format
+func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *models.Data) {
+	data = &models.Data{}
 	return
 }
 
@@ -703,7 +682,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			// actual output
 			shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
 			// FIXME
-			data := &models.Data{}
+			data := j.GetModelData(ctx, *docs)
 			jsonBytes, err := jsoniter.Marshal(data)
 			if err != nil {
 				shared.Printf("Error: %+v\n", err)
