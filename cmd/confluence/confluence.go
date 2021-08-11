@@ -13,6 +13,7 @@ import (
 
 	"github.com/LF-Engineering/insights-datasource-confluence/gen/models"
 	shared "github.com/LF-Engineering/insights-datasource-shared"
+	"github.com/go-openapi/strfmt"
 	jsoniter "github.com/json-iterator/go"
 )
 
@@ -180,8 +181,8 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 		status int
 	)
 	for {
-		////url := j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,version")
-		url := j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("history,version")
+		////url := j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("history,version")
+		url := j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,version")
 		if ctx.Debug > 1 {
 			shared.Printf("historical content url: %s\n", url)
 		}
@@ -280,7 +281,8 @@ func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, next str
 	// Init state
 	if next == "i" {
 		////url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d&expand=ancestors", j.MaxContents)
-		url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version")
+		// url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version")
+		url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version")
 	} else {
 		url = j.URL + next
 	}
@@ -334,8 +336,9 @@ func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, next str
 // ItemID - return unique identifier for an item
 func (j *DSConfluence) ItemID(item interface{}) string {
 	id, _ := shared.Dig(item, []string{"id"}, true, false)
-	versionNumber, _ := shared.Dig(item, []string{"version", "number"}, true, false)
-	return id.(string) + "#v" + fmt.Sprintf("%.0f", versionNumber.(float64))
+	//versionNumber, _ := shared.Dig(item, []string{"version", "number"}, true, false)
+	//return id.(string) + "#v" + fmt.Sprintf("%.0f", versionNumber.(float64))
+	return id.(string)
 }
 
 // ItemUpdatedOn - return updated on date for an item
@@ -565,11 +568,20 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 			}
 		}
 	}
+	if eschaMtx != nil {
+		eschaMtx.Lock()
+	}
 	for _, esch := range escha {
 		err = <-esch
 		if err != nil {
+			if eschaMtx != nil {
+				eschaMtx.Unlock()
+			}
 			return
 		}
+	}
+	if eschaMtx != nil {
+		eschaMtx.Unlock()
 	}
 	nContents := len(allContents)
 	if ctx.Debug > 0 {
@@ -584,7 +596,16 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 
 // EnrichItem - return rich item from raw item for a given author type
 func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) (rich map[string]interface{}, err error) {
-	// shared.Printf("%+v\n", item)
+	// shared.Printf("raw: %+v\n", item)
+	/*
+		shared.Printf("raw: %s\n", shared.InterfaceToStringTrunc(item, shared.MaxPayloadPrintfLen, true))
+		jsonBytes, err := jsoniter.Marshal(item)
+		if err != nil {
+			shared.Printf("Error: %+v\n", err)
+			return
+		}
+		shared.Printf("%s\n", string(jsonBytes))
+	*/
 	rich = make(map[string]interface{})
 	for _, field := range shared.RawFields {
 		v, _ := item[field]
@@ -664,6 +685,14 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 	// can also be rich["date"]
 	updatedOn, _ := shared.Dig(item, []string{"metadata__updated_on"}, true, false)
 	rich["updated_on"] = updatedOn
+	iBody, ok := shared.Dig(page, []string{"body", "storage", "value"}, false, true)
+	if ok {
+		body, _ := iBody.(string)
+		if len(body) > shared.MaxBodyLength {
+			body = body[:shared.MaxBodyLength]
+		}
+		rich["body"] = body
+	}
 	// From shared
 	rich["metadata__enriched_on"] = time.Now()
 	// rich[ProjectSlug] = ctx.ProjectSlug
@@ -676,6 +705,29 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 	data = &models.Data{
 		DataSource: ConfluenceDataSource,
 		MetaData:   gConfluenceMetaData,
+	}
+	for _, iDoc := range docs {
+		doc, _ := iDoc.(map[string]interface{})
+		// shared.Printf("rich %+v\n", doc)
+		typ, _ := doc["type"].(string)
+		typ = "confluence_" + typ
+		iUpdatedOn, _ := doc["updated_on"]
+		updatedOn, err := shared.TimeParseInterfaceString(iUpdatedOn)
+		shared.FatalOnError(err)
+		docUUID, _ := doc["uuid"].(string)
+		actUUID := shared.UUIDNonEmpty(ctx, docUUID, shared.ToESDate(updatedOn))
+		body, _ := doc["body"].(string)
+		event := &models.Event{
+			DocumentActivity: &models.DocumentActivity{
+				DocumentActivityType: typ,
+				CreatedAt:            strfmt.DateTime(updatedOn),
+				ID:                   actUUID,
+				Body:                 &body,
+				//Documentation *Documentation `json:"Documentation,omitempty"`
+				//Identity *Identity `json:"Identity,omitempty"`
+			},
+		}
+		data.Events = append(data.Events, event)
 	}
 	return
 }

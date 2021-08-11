@@ -154,13 +154,9 @@ definitions:
     type: object
     description: single event in Confluence is a page, it also includes its extra properties, version data, hierarchy etc.
     properties:
-      Documentation:
+      DocumentActivity:
         type: object
-        $ref: "#/definitions/Documentation"
-      DocumentActivities:
-        type: array
-        items:
-          $ref: "#/definitions/DocumentActivity"
+        $ref: "#/definitions/DocumentActivity"
   Data:
     type: object
     description: this is the final output of insights-datasource-confluence, data source will output packs up to some fixed size, like 500 events pack at once
