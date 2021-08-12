@@ -26,7 +26,7 @@ definitions:
     properties:
       BackendName:
         type: string
-        example: ds-confluence
+        example: insights-datasource-confluence
       BackendVersion:
         type: string
         example: v0.1.0
