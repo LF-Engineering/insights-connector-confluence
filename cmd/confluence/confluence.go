@@ -858,6 +858,9 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			}
 			shared.Printf("%s\n", string(jsonBytes))
 			*docs = []interface{}{}
+			gMaxUpdatedAtMtx.Lock()
+			defer gMaxUpdatedAtMtx.Unlock()
+			shared.SetLastUpdate(ctx, j.URL, gMaxUpdatedAt)
 		}
 	}
 	if final {
