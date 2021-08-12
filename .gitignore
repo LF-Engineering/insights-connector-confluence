@@ -30,7 +30,7 @@ bin
 # ignore all go swagger generated files except the configuration one
 gen/restapi/*
 gen/models/*
-#!gen/restapi/configure_ds_confluence.go
+#!gen/restapi/configure_insights_datasource_confluence.go
 
 .env
 
