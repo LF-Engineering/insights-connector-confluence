@@ -158,7 +158,7 @@ func (j *DSConfluence) Init(ctx *shared.Ctx) (err error) {
 }
 
 // GetHistoricalContents - get historical contents from teh current content
-func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string]interface{}, dateFrom time.Time) (contents []map[string]interface{}, err error) {
+func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string]interface{}, dateFrom, dateTo time.Time) (contents []map[string]interface{}, err error) {
 	iContentURL, _ := shared.Dig(content, []string{"_links", "webui"}, true, false)
 	ancestors, ok := shared.Dig(content, []string{"ancestors"}, false, true)
 	if !ok {
@@ -256,7 +256,7 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 		if err != nil {
 			return
 		}
-		if !when.Before(dateFrom) {
+		if !when.Before(dateFrom) && !when.After(dateTo) {
 			result["content_url"] = contentURL
 			result["ancestors"] = ancestors
 			contents = append(contents, result)
@@ -280,7 +280,7 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 }
 
 // GetConfluenceContents - get confluence historical contents
-func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, next string) (contents []map[string]interface{}, newNext string, err error) {
+func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, toDate, next string) (contents []map[string]interface{}, newNext string, err error) {
 	/*
 		shared.Printf("GetConfluenceContents: in\n")
 		defer func() {
@@ -301,9 +301,9 @@ func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, next str
 	if next == "i" {
 		////url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d&expand=ancestors", j.MaxContents)
 		if j.SkipBody {
-			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version")
+			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version")
 		} else {
-			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version")
+			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version")
 		}
 	} else {
 		url = j.URL + next
@@ -438,6 +438,8 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	var (
 		sDateFrom string
 		dateFrom  time.Time
+		sDateTo   string
+		dateTo    time.Time
 	)
 	if ctx.DateFrom != nil {
 		dateFrom = *ctx.DateFrom
@@ -445,6 +447,13 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	} else {
 		dateFrom = shared.DefaultDateFrom
 		sDateFrom = "1970-01-01 00:00"
+	}
+	if ctx.DateTo != nil {
+		dateTo = *ctx.DateTo
+		sDateTo = shared.ToYMDHMDate(dateTo)
+	} else {
+		dateTo = shared.DefaultDateTo
+		sDateTo = "2100-01-01 00:00"
 	}
 	next := "i"
 	var (
@@ -469,7 +478,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 		}()
 		// shared.Printf("processContent: in\n")
 		var contents []map[string]interface{}
-		contents, e = j.GetHistoricalContents(ctx, content, dateFrom)
+		contents, e = j.GetHistoricalContents(ctx, content, dateFrom, dateTo)
 		if e != nil {
 			return
 		}
@@ -526,7 +535,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	if thrN > 1 {
 		for {
 			var contents []map[string]interface{}
-			contents, next, err = j.GetConfluenceContents(ctx, sDateFrom, next)
+			contents, next, err = j.GetConfluenceContents(ctx, sDateFrom, sDateTo, next)
 			if err != nil {
 				return
 			}
@@ -574,7 +583,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	} else {
 		for {
 			var contents []map[string]interface{}
-			contents, next, err = j.GetConfluenceContents(ctx, sDateFrom, next)
+			contents, next, err = j.GetConfluenceContents(ctx, sDateFrom, sDateTo, next)
 			if err != nil {
 				return
 			}
