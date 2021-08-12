@@ -40,10 +40,12 @@ type DSConfluence struct {
 	MaxContents     int    // Defaults to ConfluenceDefaultMaxContents (1000)
 	User            string // If user is provided then we assume that we don't have base64 encoded user:token yet
 	Token           string // If user is not specified we assume that token already contains "<username>:<your-api-token>"
+	SkipBody        bool   // Do not retrieve comments body from API and do not store it (schema allows null for body)
 	FlagURL         *string
 	FlagMaxContents *int
 	FlagUser        *string
 	FlagToken       *string
+	FlagSkipBody    *bool
 }
 
 // AddFlags - add confluence specific flags
@@ -52,6 +54,7 @@ func (j *DSConfluence) AddFlags() {
 	j.FlagMaxContents = flag.Int("confluence-max-contents", ConfluenceDefaultMaxContents, "Max Contents - defaults to ConfluenceDefaultMaxContents (1000)")
 	j.FlagUser = flag.String("confluence-user", "", "User: if user is provided then we assume that we don't have base64 encoded user:token yet")
 	j.FlagToken = flag.String("confluence-token", "", "Token: if user is not specified we assume that token already contains \"<username>:<your-api-token>\"")
+	j.FlagSkipBody = flag.Bool("confluence-skip-body", false, "Do not retrieve comments body from API and do not store it (schema allows null for body)")
 }
 
 // ParseArgs - parse confluence specific environment variables
@@ -77,6 +80,15 @@ func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
 		}
 	} else if !passed {
 		j.MaxContents = ConfluenceDefaultMaxContents
+	}
+
+	// SkipBody
+	if shared.FlagPassed(ctx, "skip-body") {
+		j.SkipBody = *j.FlagSkipBody
+	}
+	skipBody, present := ctx.BoolEnvSet("SKIP_BODY")
+	if present {
+		j.SkipBody = skipBody
 	}
 
 	// SSO User
@@ -183,8 +195,12 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 		status int
 	)
 	for {
-		////url := j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("history,version")
-		url := j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,version")
+		var url string
+		if j.SkipBody {
+			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("history,version")
+		} else {
+			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,version")
+		}
 		if ctx.Debug > 1 {
 			shared.Printf("historical content url: %s\n", url)
 		}
@@ -283,8 +299,11 @@ func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, next str
 	// Init state
 	if next == "i" {
 		////url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d&expand=ancestors", j.MaxContents)
-		// url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version")
-		url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version")
+		if j.SkipBody {
+			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version")
+		} else {
+			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version")
+		}
 	} else {
 		url = j.URL + next
 	}
@@ -695,13 +714,15 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 	// can also be rich["date"]
 	updatedOn, _ := shared.Dig(item, []string{"metadata__updated_on"}, true, false)
 	rich["updated_on"] = updatedOn
-	iBody, ok := shared.Dig(page, []string{"body", "storage", "value"}, false, true)
-	if ok {
-		body, _ := iBody.(string)
-		if len(body) > shared.MaxBodyLength {
-			body = body[:shared.MaxBodyLength]
+	if !j.SkipBody {
+		iBody, ok := shared.Dig(page, []string{"body", "storage", "value"}, false, true)
+		if ok {
+			body, _ := iBody.(string)
+			if len(body) > shared.MaxBodyLength {
+				body = body[:shared.MaxBodyLength]
+			}
+			rich["body"] = body
 		}
-		rich["body"] = body
 	}
 	iAvatar, ok := shared.Dig(page, []string{"version", "by", "profilePicture", "path"}, false, true)
 	if ok {
@@ -750,7 +771,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 	for _, iDoc := range docs {
 		var (
 			createdAt time.Time
-			body      string
+			body      *string
 			space     string
 			ancestors []*models.Ancestor
 		)
@@ -773,7 +794,12 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		gMaxUpdatedAtMtx.Unlock()
 		docUUID, _ := doc["uuid"].(string)
 		actUUID := shared.UUIDNonEmpty(ctx, docUUID, shared.ToESDate(updatedOn))
-		body, _ = doc["body"].(string)
+		if !j.SkipBody {
+			sBody, okBody := doc["body"].(string)
+			if okBody {
+				body = &sBody
+			}
+		}
 		avatar, _ := doc["avatar"].(string)
 		internalID, _ := doc["id"].(string)
 		title, _ := doc["title"].(string)
@@ -810,7 +836,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 				DocumentActivityType: typ,
 				CreatedAt:            strfmt.DateTime(updatedOn),
 				ID:                   actUUID,
-				Body:                 &body,
+				Body:                 body,
 				Identity: &models.Identity{
 					ID:           userUUID,
 					AvatarURL:    avatar,
