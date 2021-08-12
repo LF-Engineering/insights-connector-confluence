@@ -113,7 +113,7 @@ definitions:
         description: document type enum value (to reconstruct documentTypeId relation Documentation - DocumentTypeEnum)
       Slug:
         type: string
-        example: cncf/k8s
+        example: cncf/k8s # I think we shouldn't be setting this, entire project structure should be set by onboarding process
         description: Slug points to project (FK), we don't store project data here, project data comes from onboarding
       DocumentVersion:
         type: string
