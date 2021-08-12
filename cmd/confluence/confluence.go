@@ -433,7 +433,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	if ctx.DateTo != nil {
 		shared.Printf("%s fetching till %v\n", j.URL, ctx.DateTo)
 	}
-	// Non-generic starts here
+	// NOTE: Non-generic starts here
 	var (
 		sDateFrom string
 		dateFrom  time.Time
@@ -611,7 +611,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	if err != nil {
 		shared.Printf("Error %v sending %d contents to queue\n", err, len(allContents))
 	}
-	// Non-generic ends here
+	// NOTE: Non-generic ends here
 	gMaxUpdatedAtMtx.Lock()
 	defer gMaxUpdatedAtMtx.Unlock()
 	shared.SetLastUpdate(ctx, j.URL, gMaxUpdatedAt)
@@ -897,7 +897,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			outputDocs()
 		}()
 	}
-	// non-generic code starts
+	// NOTE: non-generic code starts
 	if ctx.Debug > 0 {
 		shared.Printf("confluence enrich items %d\n", len(items))
 	}
@@ -923,7 +923,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 				c <- e
 			}
 		}()
-		// never refer to _source - we no longer use ES
+		// NOTE: never refer to _source - we no longer use ES
 		doc, ok := src.(map[string]interface{})
 		if !ok {
 			e = fmt.Errorf("Failed to parse document %+v", doc)
