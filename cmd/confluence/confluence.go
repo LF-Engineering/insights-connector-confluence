@@ -119,6 +119,7 @@ func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
 		j.Token = base64.StdEncoding.EncodeToString([]byte(j.User + ":" + j.Token))
 		shared.AddRedacted(j.Token, false)
 	}
+	// NOTE: don't forget this
 	gConfluenceMetaData.Project = ctx.Project
 	gConfluenceMetaData.Tags = ctx.Tags
 	return
@@ -775,7 +776,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		var (
 			createdAt time.Time
 			body      *string
-			space     string
+			space     *string
 			ancestors []*models.Ancestor
 		)
 		doc, _ := iDoc.(map[string]interface{})
@@ -807,7 +808,10 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		internalID, _ := doc["id"].(string)
 		title, _ := doc["title"].(string)
 		url, _ := doc["url"].(string)
-		space, _ = doc["space"].(string)
+		sSpace, okSpace := doc["space"].(string)
+		if okSpace {
+			space = &sSpace
+		}
 		version, _ := doc["version"].(float64)
 		name, _ := doc["by_name"].(string)
 		username, _ := doc["by_username"].(string)
@@ -855,7 +859,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 					UpdatedAt:       strfmt.DateTime(updatedOn), // this is only set for confluence_new_page
 					Title:           title,
 					URL:             url,
-					Space:           &space,
+					Space:           space,
 					DataSourceID:    source,
 					DocumentType:    origType,
 					DocumentVersion: fmt.Sprintf("%.0f", version),
