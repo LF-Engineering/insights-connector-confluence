@@ -766,6 +766,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 	data = &models.Data{
 		DataSource: ConfluenceDataSource,
 		MetaData:   gConfluenceMetaData,
+		Endpoint:   j.URL,
 	}
 	source := data.DataSource.Slug
 	for _, iDoc := range docs {

@@ -167,6 +167,10 @@ definitions:
       MetaData:
         type: object
         $ref: "#/definitions/MetaData"
+      Endpoint:
+        type: string
+        description: Confluence endpoint for which data is being sent
+        example: https://wiki.lfnetworking.org
       Events:
         type: array
         items:
