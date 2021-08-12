@@ -152,7 +152,7 @@ definitions:
         $ref: "#/definitions/Documentation"
   Event:
     type: object
-    description: single event in Confluence is a page, it also includes its extra properties, version data, hierarchy etc.
+    description: single event in Confluence is an activity (like page created, edited, page comment added, attachment added etc) , it also includes its extra properties, version data, hierarchy etc.
     properties:
       DocumentActivity:
         type: object
