@@ -805,11 +805,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		if typ == "confluence_new_page" {
 			createdAt = updatedOn
 		}
-		gMaxUpdatedAtMtx.Lock()
-		if updatedOn.After(gMaxUpdatedAt) {
-			gMaxUpdatedAt = updatedOn
-		}
-		gMaxUpdatedAtMtx.Unlock()
 		docUUID, _ := doc["uuid"].(string)
 		actUUID := shared.UUIDNonEmpty(ctx, docUUID, shared.ToESDate(updatedOn))
 		if !j.SkipBody {
@@ -883,6 +878,11 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 			},
 		}
 		data.Events = append(data.Events, event)
+		gMaxUpdatedAtMtx.Lock()
+		if updatedOn.After(gMaxUpdatedAt) {
+			gMaxUpdatedAt = updatedOn
+		}
+		gMaxUpdatedAtMtx.Unlock()
 	}
 	return
 }
