@@ -951,6 +951,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			mtx.Lock()
 		}
 		*docs = append(*docs, rich)
+		// NOTE: flush here
 		if len(*docs) >= ctx.PackSize {
 			outputDocs()
 		}
