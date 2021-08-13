@@ -425,11 +425,14 @@ func (j *DSConfluence) AddMetadata(ctx *shared.Ctx, item interface{}) (mItem map
 // Sync - sync confluence data source
 func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	thrN := shared.GetThreadsNum(ctx)
+	if ctx.DateFrom != nil {
+		shared.Printf("%s fetching from %v\n", j.URL, ctx.DateFrom)
+	}
 	if ctx.DateFrom == nil {
 		ctx.DateFrom = shared.GetLastUpdate(ctx, j.URL)
-	}
-	if ctx.DateFrom != nil {
-		shared.Printf("%s resuming from %v\n", j.URL, ctx.DateFrom)
+		if ctx.DateFrom != nil {
+			shared.Printf("%s resuming from %v\n", j.URL, ctx.DateFrom)
+		}
 	}
 	if ctx.DateTo != nil {
 		shared.Printf("%s fetching till %v\n", j.URL, ctx.DateTo)
@@ -598,6 +601,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 			}
 		}
 	}
+	// NOTE: lock needed
 	if eschaMtx != nil {
 		eschaMtx.Lock()
 	}
@@ -617,6 +621,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	if ctx.Debug > 0 {
 		shared.Printf("%d remaining contents to send to queue\n", nContents)
 	}
+	// NOTE: for all items, even if 0 - to flush the queue
 	err = j.ConfluenceEnrichItems(ctx, thrN, allContents, &allDocs, true)
 	if err != nil {
 		shared.Printf("Error %v sending %d contents to queue\n", err, len(allContents))
