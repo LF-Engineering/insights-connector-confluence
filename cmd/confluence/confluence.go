@@ -37,7 +37,7 @@ var (
 // DSConfluence - DS implementation for confluence - does nothing at all, just presents a skeleton code
 type DSConfluence struct {
 	URL             string // Confluence instance URL, for example https://wiki.lfnetworking.org
-	MaxContents     int    // Defaults to ConfluenceDefaultMaxContents (1000)
+	MaxContents     int    // Defaults to ConfluenceDefaultMaxContents
 	User            string // If user is provided then we assume that we don't have base64 encoded user:token yet
 	Token           string // If user is not specified we assume that token already contains "<username>:<your-api-token>"
 	SkipBody        bool   // Do not retrieve comments body from API and do not store it (schema allows null for body)
@@ -51,7 +51,7 @@ type DSConfluence struct {
 // AddFlags - add confluence specific flags
 func (j *DSConfluence) AddFlags() {
 	j.FlagURL = flag.String("confluence-url", "", "Confluence instance URL, for example https://wiki.lfnetworking.org")
-	j.FlagMaxContents = flag.Int("confluence-max-contents", ConfluenceDefaultMaxContents, "Max Contents - defaults to ConfluenceDefaultMaxContents (1000)")
+	j.FlagMaxContents = flag.Int("confluence-max-contents", ConfluenceDefaultMaxContents, fmt.Sprintf("Max Contents - defaults to ConfluenceDefaultMaxContents (%d)", ConfluenceDefaultMaxContents))
 	j.FlagUser = flag.String("confluence-user", "", "User: if user is provided then we assume that we don't have base64 encoded user:token yet")
 	j.FlagToken = flag.String("confluence-token", "", "Token: if user is not specified we assume that token already contains \"<username>:<your-api-token>\"")
 	j.FlagSkipBody = flag.Bool("confluence-skip-body", false, "Do not retrieve comments body from API and do not store it (schema allows null for body)")
