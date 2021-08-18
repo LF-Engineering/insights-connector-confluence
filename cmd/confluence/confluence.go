@@ -814,7 +814,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 			}
 		}
 		avatar, _ := doc["avatar"].(string)
-		internalID, _ := doc["id"].(string)
+		entityID, _ := doc["id"].(string)
 		title, _ := doc["title"].(string)
 		url, _ := doc["url"].(string)
 		sSpace, okSpace := doc["space"].(string)
@@ -840,9 +840,9 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 					aTitle, _ := aTitles[i].(string)
 					aLink, _ := aLinks[i].(string)
 					ancestors = append(ancestors, &models.Ancestor{
-						InternalID: aid,
-						Title:      aTitle,
-						URL:        aLink,
+						EntityID: aid,
+						Title:    aTitle,
+						URL:      aLink,
 					})
 				}
 			}
@@ -863,7 +863,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 				},
 				Documentation: &models.Documentation{
 					ID:              docUUID,
-					InternalID:      internalID,
+					EntityID:        entityID,
 					CreatedAt:       strfmt.DateTime(createdAt),
 					UpdatedAt:       strfmt.DateTime(updatedOn), // this is only set for confluence_new_page
 					Title:           title,
