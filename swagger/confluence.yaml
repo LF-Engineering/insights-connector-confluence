@@ -136,7 +136,7 @@ definitions:
         example: '2019-09-02 03:00:33.000000'
       DocumentActivityType:
         type: string
-        example: confluence_page_created, confluence_comment_added
+        example: confluence_page, confluence_new_page, confluence_comment
         description: allows reconstructing relation (DocumentActivity docuemntActivityTypeId DocumentActivityTypeEnum)
       Body:
         type: string

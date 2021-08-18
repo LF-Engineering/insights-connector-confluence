@@ -40,7 +40,7 @@ type DSConfluence struct {
 	MaxContents     int    // Defaults to ConfluenceDefaultMaxContents
 	User            string // If user is provided then we assume that we don't have base64 encoded user:token yet
 	Token           string // If user is not specified we assume that token already contains "<username>:<your-api-token>"
-	SkipBody        bool   // Do not retrieve comments body from API and do not store it (schema allows null for body)
+	SkipBody        bool   // Do not retrieve page body from API and do not store it (schema allows null for body)
 	FlagURL         *string
 	FlagMaxContents *int
 	FlagUser        *string
@@ -54,7 +54,7 @@ func (j *DSConfluence) AddFlags() {
 	j.FlagMaxContents = flag.Int("confluence-max-contents", ConfluenceDefaultMaxContents, fmt.Sprintf("Max Contents - defaults to ConfluenceDefaultMaxContents (%d)", ConfluenceDefaultMaxContents))
 	j.FlagUser = flag.String("confluence-user", "", "User: if user is provided then we assume that we don't have base64 encoded user:token yet")
 	j.FlagToken = flag.String("confluence-token", "", "Token: if user is not specified we assume that token already contains \"<username>:<your-api-token>\"")
-	j.FlagSkipBody = flag.Bool("confluence-skip-body", false, "Do not retrieve comments body from API and do not store it (schema allows null for body)")
+	j.FlagSkipBody = flag.Bool("confluence-skip-body", false, "Do not retrieve page body from API and do not store it (schema allows null for body)")
 }
 
 // ParseArgs - parse confluence specific environment variables
@@ -795,14 +795,14 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		)
 		doc, _ := iDoc.(map[string]interface{})
 		// shared.Printf("rich %+v\n", doc)
-		typ, _ := doc["type"].(string)
-		typ = "confluence_" + typ
+		activityType, _ := doc["type"].(string)
+		activityType = "confluence_" + activityType
 		origType, _ := doc["original_type"].(string)
 		origType = "confluence_" + origType
 		iUpdatedOn, _ := doc["updated_on"]
 		updatedOn, err := shared.TimeParseInterfaceString(iUpdatedOn)
 		shared.FatalOnError(err)
-		if typ == "confluence_new_page" {
+		if activityType == "confluence_new_page" {
 			createdAt = updatedOn
 		}
 		docUUID, _ := doc["uuid"].(string)
@@ -849,7 +849,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		}
 		event := &models.Event{
 			DocumentActivity: &models.DocumentActivity{
-				DocumentActivityType: typ,
+				DocumentActivityType: activityType,
 				CreatedAt:            strfmt.DateTime(updatedOn),
 				ID:                   actUUID,
 				Body:                 body,
