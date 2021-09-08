@@ -30,7 +30,7 @@ var (
 	gMaxUpdatedAt    time.Time
 	gMaxUpdatedAtMtx = &sync.Mutex{}
 	// ConfluenceDataSource - constant
-	ConfluenceDataSource = &models.DataSource{Name: "Confluence", Slug: "confluence"}
+	ConfluenceDataSource = &models.DataSource{Name: "Confluence", Slug: "confluence", Model: "documentation"}
 	gConfluenceMetaData  = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
 )
 

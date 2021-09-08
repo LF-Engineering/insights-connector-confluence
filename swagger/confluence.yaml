@@ -21,6 +21,9 @@ definitions:
       Name:
         type: string
         example: Confluence
+      Model:
+        type: string
+        example: documentation
   MetaData:
     type: object
     properties:
