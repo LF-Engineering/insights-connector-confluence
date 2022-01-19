@@ -29,7 +29,7 @@ definitions:
     properties:
       BackendName:
         type: string
-        example: insights-datasource-confluence
+        example: insights-connector-confluence
       BackendVersion:
         type: string
         example: v0.1.0
@@ -162,7 +162,7 @@ definitions:
         $ref: "#/definitions/DocumentActivity"
   Data:
     type: object
-    description: this is the final output of insights-datasource-confluence, data source will output packs up to some fixed size, like 500 events pack at once
+    description: this is the final output of insights-connector-confluence, data source will output packs up to some fixed size, like 500 events pack at once
     properties:
       DataSource:
         type: object
