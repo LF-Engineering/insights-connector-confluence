@@ -11,7 +11,7 @@ import (
 
 	neturl "net/url"
 
-	"github.com/LF-Engineering/insights-datasource-confluence/gen/models"
+	"github.com/LF-Engineering/insights-connector-confluence/gen/models"
 	shared "github.com/LF-Engineering/insights-datasource-shared"
 	"github.com/go-openapi/strfmt"
 	jsoniter "github.com/json-iterator/go"
