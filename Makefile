@@ -11,7 +11,7 @@ GO_IMPORTS=goimports -w
 GO_ERRCHECK=errcheck -asserts -ignore '[FS]?[Pp]rint*'
 BINARIES=confluence
 all: check ${BINARIES}
-confluence: ${GO_BIN_FILES}
+confluence:  swagger ${GO_BIN_FILES}
 	 ${GO_ENV} ${GO_BUILD} -o confluence ${GO_BIN_FILES}
 fmt: ${GO_BIN_FILES}
 	${GO_FMT} ${GO_BIN_FILES}
