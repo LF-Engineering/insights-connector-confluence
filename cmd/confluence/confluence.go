@@ -12,8 +12,13 @@ import (
 	neturl "net/url"
 
 	"github.com/LF-Engineering/insights-connector-confluence/gen/models"
+	"github.com/LF-Engineering/lfx-event-schema/service"
+	"github.com/LF-Engineering/lfx-event-schema/service/insights"
+	"github.com/LF-Engineering/lfx-event-schema/service/user"
+
+	insightsConf "github.com/LF-Engineering/lfx-event-schema/service/insights/confluence"
+
 	shared "github.com/LF-Engineering/insights-datasource-shared"
-	"github.com/go-openapi/strfmt"
 	jsoniter "github.com/json-iterator/go"
 )
 
@@ -24,14 +29,18 @@ const (
 	ConfluenceDefaultMaxContents = 1000
 	// ConfluenceDefaultSearchField - default search field
 	ConfluenceDefaultSearchField = "item_id"
+	// ConfluenceConnector
+	ConfluenceConnector = "confluence-connector"
+	// ConfluenceDatasource
+	ConfluenceDataSource = "confluence"
 )
 
 var (
 	gMaxUpdatedAt    time.Time
 	gMaxUpdatedAtMtx = &sync.Mutex{}
 	// ConfluenceDataSource - constant
-	ConfluenceDataSource = &models.DataSource{Name: "Confluence", Slug: "confluence", Model: "documentation"}
-	gConfluenceMetaData  = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
+	//ConfluenceDataSource = &models.DataSource{Name: "Confluence", Slug: "confluence", Model: "documentation"}
+	gConfluenceMetaData = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
 )
 
 // DSConfluence - DS implementation for confluence - does nothing at all, just presents a skeleton code
@@ -779,13 +788,76 @@ func (j *DSConfluence) GetRoleIdentity(item map[string]interface{}) (name, usern
 }
 
 // GetModelData - return data in swagger format
-func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *models.Data) {
-	data = &models.Data{
-		DataSource: ConfluenceDataSource,
-		MetaData:   gConfluenceMetaData,
-		Endpoint:   j.URL,
-	}
-	source := data.DataSource.Slug
+func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data map[string][]interface{}, err error) {
+	data = make(map[string][]interface{})
+
+	defer func() {
+		if err != nil {
+			return
+		}
+
+		contentBaseEvent := insightsConf.ContentBaseEvent{
+			Connector:        insights.ConfluenceConnector,
+			ConnectorVersion: ConfluenceBackendVersion,
+			Source:           insights.ConfluenceSource,
+		}
+
+		for k, v := range data {
+			switch k {
+			case "created":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(insightsConf.ContentCreatedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: ConfluenceConnector,
+						UpdatedBy: ConfluenceConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+
+				ary := []interface{}{}
+				for _, content := range v {
+					ary = append(ary, insightsConf.ContentCreatedEvent{
+						ContentBaseEvent: contentBaseEvent,
+						BaseEvent:        baseEvent,
+						Payload:          content.(insightsConf.Content),
+					})
+				}
+				data[k] = ary
+
+			case "updated":
+				baseEvent := service.BaseEvent{
+					Type: service.EventType(insightsConf.ContentUpdatedEvent{}.Event()),
+					CRUDInfo: service.CRUDInfo{
+						CreatedBy: ConfluenceConnector,
+						UpdatedBy: ConfluenceConnector,
+						CreatedAt: time.Now().Unix(),
+						UpdatedAt: time.Now().Unix(),
+					},
+				}
+
+				ary := []interface{}{}
+				for _, content := range v {
+					ary = append(ary, insightsConf.ContentUpdatedEvent{
+						ContentBaseEvent: contentBaseEvent,
+						BaseEvent:        baseEvent,
+						Payload:          content.(insightsConf.Content),
+					})
+				}
+				data[k] = ary
+
+			default:
+				err = fmt.Errorf("unknown content '%s' event", k)
+				return
+			}
+
+		}
+
+	}()
+
+	userUUID, confluenceContentID, confluenceSpaceID := "", "", ""
+	var updatedOn time.Time
+	source := ConfluenceDataSource
 	for _, iDoc := range docs {
 		var (
 			createdAt time.Time
@@ -799,14 +871,13 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		activityType = "confluence_" + activityType
 		origType, _ := doc["original_type"].(string)
 		origType = "confluence_" + origType
-		iUpdatedOn, _ := doc["updated_on"]
-		updatedOn, err := shared.TimeParseInterfaceString(iUpdatedOn)
+		iUpdatedOn := doc["updated_on"]
+		updatedOn, err = shared.TimeParseInterfaceString(iUpdatedOn)
 		shared.FatalOnError(err)
 		if activityType == "confluence_new_page" {
 			createdAt = updatedOn
 		}
-		docUUID, _ := doc["uuid"].(string)
-		actUUID := shared.UUIDNonEmpty(ctx, docUUID, shared.ToESDate(updatedOn))
+
 		if !j.SkipBody {
 			sBody, okBody := doc["body"].(string)
 			if okBody {
@@ -826,8 +897,27 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 		username, _ := doc["by_username"].(string)
 		email, _ := doc["by_email"].(string)
 		name, username = shared.PostprocessNameUsername(name, username, email)
-		userUUID := shared.UUIDAffs(ctx, source, email, name, username)
+		//userUUID := shared.UUIDAffs(ctx, source, email, name, username)
 		iAIDs, ok := doc["ancestors_ids"]
+
+		userUUID, err = user.GenerateIdentity(&source, &email, &name, &username)
+		if err != nil {
+			shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+			return
+		}
+
+		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, activityType, entityID)
+		if err != nil {
+			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, activityType, entityID, err, doc)
+			return
+		}
+
+		confluenceSpaceID, err = insightsConf.GenerateConfluenceSpaceID(j.URL, *space)
+		if err != nil {
+			shared.Printf("GenerateConfluenceSpaceID(%s,%s,%s): %+v for %+v", j.URL, space, err, doc)
+			return
+		}
+
 		if ok {
 			aIDs, ok := iAIDs.([]interface{})
 			if ok {
@@ -847,37 +937,61 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data *
 				}
 			}
 		}
-		event := &models.Event{
-			DocumentActivity: &models.DocumentActivity{
-				DocumentActivityType: activityType,
-				CreatedAt:            strfmt.DateTime(updatedOn),
-				ID:                   actUUID,
-				Body:                 body,
-				Identity: &models.Identity{
-					ID:           userUUID,
-					AvatarURL:    avatar,
-					DataSourceID: source,
-					Name:         name,
-					Username:     username,
-					Email:        email,
-				},
-				Documentation: &models.Documentation{
-					ID:              docUUID,
-					EntityID:        entityID,
-					CreatedAt:       strfmt.DateTime(createdAt),
-					UpdatedAt:       strfmt.DateTime(updatedOn), // this is only set for confluence_new_page
-					Title:           title,
-					URL:             url,
-					Space:           space,
-					DataSourceID:    source,
-					DocumentType:    origType,
-					DocumentVersion: fmt.Sprintf("%.0f", version),
-					Slug:            ctx.Project, // FIXME: We point to a project specified from the configuration - but aren't given documentation pages already connected to projects via onboarding?
-					Ancestors:       ancestors,
+
+		confSpace := insightsConf.Space{
+			ID:       confluenceSpaceID,
+			SpaceKey: *space,
+		}
+
+		contributors := []insights.Contributor{
+			{
+				Role:   insights.AuthorRole,
+				Weight: 1.0,
+				Identity: user.UserIdentityObjectBase{
+					ID:         userUUID,
+					Email:      email,
+					IsVerified: false,
+					Name:       name,
+					Username:   username,
+					Source:     ConfluenceDataSource,
+					Avatar:     avatar,
 				},
 			},
 		}
-		data.Events = append(data.Events, event)
+		content := insightsConf.Content{
+			ID:              confluenceContentID,
+			Space:           confSpace,
+			ServerURL:       j.URL,
+			ContentID:       entityID,
+			ContentURL:      url,
+			Version:         fmt.Sprintf("%f", version),
+			Type:            insightsConf.ContentType(activityType),
+			Title:           title,
+			Body:            *body,
+			Contributors:    contributors,
+			SyncTimestamp:   time.Now(),
+			SourceTimestamp: createdAt,
+			//Children: ,
+		}
+
+		isNew := false
+		if !updatedOn.After(createdAt) {
+			isNew = true
+		}
+
+		key := "updated"
+		if isNew {
+			key = "created"
+		}
+
+		ary, ok := data[key]
+		if !ok {
+			ary = []interface{}{content}
+		} else {
+			ary = append(ary, content)
+		}
+		data[key] = ary
+
 		gMaxUpdatedAtMtx.Lock()
 		if updatedOn.After(gMaxUpdatedAt) {
 			gMaxUpdatedAt = updatedOn
@@ -896,7 +1010,10 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 		if len(*docs) > 0 {
 			// actual output
 			shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
-			data := j.GetModelData(ctx, *docs)
+			data, err := j.GetModelData(ctx, *docs)
+			if err == nil {
+				// Push the event
+			}
 			// FIXME: actual output to some consumer...
 			jsonBytes, err := jsoniter.Marshal(data)
 			if err != nil {
