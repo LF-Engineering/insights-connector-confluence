@@ -12,7 +12,6 @@ import (
 
 	neturl "net/url"
 
-	"github.com/LF-Engineering/insights-connector-confluence/gen/models"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/LF-Engineering/lfx-event-schema/service"
@@ -46,7 +45,7 @@ var (
 	gMaxUpdatedAtMtx = &sync.Mutex{}
 	// ConfluenceDataSource - constant
 	//ConfluenceDataSource = &models.DataSource{Name: "Confluence", Slug: "confluence", Model: "documentation"}
-	gConfluenceMetaData = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
+	//gConfluenceMetaData = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
 )
 
 type Publisher interface {
@@ -184,8 +183,8 @@ func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
 		shared.AddRedacted(j.Token, false)
 	}
 	// NOTE: don't forget this
-	gConfluenceMetaData.Project = ctx.Project
-	gConfluenceMetaData.Tags = ctx.Tags
+	// gConfluenceMetaData.Project = ctx.Project
+	// gConfluenceMetaData.Tags = ctx.Tags
 	return
 }
 
@@ -930,7 +929,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			createdAt time.Time
 			body      *string
 			space     *string
-			ancestors []*models.Ancestor
+			//ancestors []*models.Ancestor
 		)
 		doc, _ := iDoc.(map[string]interface{})
 		// shared.Printf("rich %+v\n", doc)
@@ -963,7 +962,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		email, _ := doc["by_email"].(string)
 		name, username = shared.PostprocessNameUsername(name, username, email)
 		//userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-		iAIDs, ok := doc["ancestors_ids"]
+		//iAIDs, ok := doc["ancestors_ids"]
 
 		userUUID, err = user.GenerateIdentity(&source, &email, &name, &username)
 		if err != nil {
@@ -983,25 +982,25 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			return
 		}
 
-		if ok {
-			aIDs, ok := iAIDs.([]interface{})
-			if ok {
-				iATitles, _ := doc["ancestors_titles"]
-				iALinks, _ := doc["ancestors_links"]
-				aTitles, _ := iATitles.([]interface{})
-				aLinks, _ := iALinks.([]interface{})
-				for i, aID := range aIDs {
-					aid, _ := aID.(string)
-					aTitle, _ := aTitles[i].(string)
-					aLink, _ := aLinks[i].(string)
-					ancestors = append(ancestors, &models.Ancestor{
-						EntityID: aid,
-						Title:    aTitle,
-						URL:      aLink,
-					})
-				}
-			}
-		}
+		// if ok {
+		// 	aIDs, ok := iAIDs.([]interface{})
+		// 	if ok {
+		// 		iATitles, _ := doc["ancestors_titles"]
+		// 		iALinks, _ := doc["ancestors_links"]
+		// 		aTitles, _ := iATitles.([]interface{})
+		// 		aLinks, _ := iALinks.([]interface{})
+		// 		for i, aID := range aIDs {
+		// 			aid, _ := aID.(string)
+		// 			aTitle, _ := aTitles[i].(string)
+		// 			aLink, _ := aLinks[i].(string)
+		// 			ancestors = append(ancestors, &models.Ancestor{
+		// 				EntityID: aid,
+		// 				Title:    aTitle,
+		// 				URL:      aLink,
+		// 			})
+		// 		}
+		// 	}
+		// }
 
 		confSpace := insightsConf.Space{
 			ID:       confluenceSpaceID,

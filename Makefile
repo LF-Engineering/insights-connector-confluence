@@ -11,7 +11,7 @@ GO_IMPORTS=goimports -w
 GO_ERRCHECK=errcheck -asserts -ignore '[FS]?[Pp]rint*'
 BINARIES=confluence
 all: check ${BINARIES}
-confluence:  swagger ${GO_BIN_FILES}
+confluence: ${GO_BIN_FILES}
 	 ${GO_ENV} ${GO_BUILD} -o confluence ${GO_BIN_FILES}
 
 fmt: ${GO_BIN_FILES}
@@ -31,17 +31,7 @@ errcheck: ${GO_BIN_FILES}
 
 check: fmt lint imports vet errcheck
 
-swagger: clean_swagger
-	swagger -q generate model -t gen -f swagger/confluence.yaml
-
-clean_swagger:
-	rm -rf ./gen
-	mkdir gen
-
 clean:
 	rm -rf ${BINARIES}
-
-setup_dev:
-	go get github.com/go-swagger/go-swagger/cmd/swagger
 
 .PHONY: all
