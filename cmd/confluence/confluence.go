@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,9 +13,14 @@ import (
 	neturl "net/url"
 
 	"github.com/LF-Engineering/insights-connector-confluence/gen/models"
+	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
+	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
 	"github.com/LF-Engineering/lfx-event-schema/service/user"
+	"github.com/LF-Engineering/lfx-event-schema/utils/datalake"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 
 	insightsConf "github.com/LF-Engineering/lfx-event-schema/service/insights/confluence"
 
@@ -43,6 +49,10 @@ var (
 	gConfluenceMetaData = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
 )
 
+type Publisher interface {
+	PushEvents(action, source, eventType, subEventType, env string, data []interface{}) error
+}
+
 // DSConfluence - DS implementation for confluence - does nothing at all, just presents a skeleton code
 type DSConfluence struct {
 	URL             string // Confluence instance URL, for example https://wiki.lfnetworking.org
@@ -55,6 +65,51 @@ type DSConfluence struct {
 	FlagUser        *string
 	FlagToken       *string
 	FlagSkipBody    *bool
+	// Publisher & stream
+	Publisher
+	Stream string // stream to publish the data
+	Logger logger.Logger
+}
+
+// AddPublisher - sets Kinesis publisher
+func (j *DSConfluence) AddPublisher(publisher Publisher) {
+	j.Publisher = publisher
+}
+
+// AddLogger - adds logger
+func (j *DSConfluence) AddLogger(ctx *shared.Ctx) {
+	client, err := elastic.NewClientProvider(&elastic.Params{
+		URL:      os.Getenv("ELASTIC_LOG_URL"),
+		Password: os.Getenv("ELASTIC_LOG_PASSWORD"),
+		Username: os.Getenv("ELASTIC_LOG_USER"),
+	})
+	if err != nil {
+		shared.Printf("AddLogger error: %+v", err)
+		return
+	}
+	logProvider, err := logger.NewLogger(client, os.Getenv("STAGE"))
+	if err != nil {
+		shared.Printf("AddLogger error: %+v", err)
+		return
+	}
+	j.Logger = *logProvider
+}
+
+// WriteLog - writes to log
+func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) {
+	_ = j.Logger.Write(&logger.Log{
+		Connector: ConfluenceDataSource,
+		Configuration: []map[string]string{
+			{
+				"CONFLUENCE_URL": j.URL,
+				"ES_URL":         ctx.ESURL,
+				"ProjectSlug":    ctx.Project,
+			}},
+		Status:    status,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Message:   message,
+	})
 }
 
 // AddFlags - add confluence specific flags
@@ -163,6 +218,18 @@ func (j *DSConfluence) Init(ctx *shared.Ctx) (err error) {
 	if ctx.Debug > 1 {
 		shared.Printf("confluence: %+v\nshared context: %s\n", j, ctx.Info())
 	}
+
+	if j.Stream != "" {
+		sess, err := session.NewSession()
+		if err != nil {
+			return err
+		}
+		s3Client := s3.New(sess)
+		objectStore := datalake.NewS3ObjectStore(s3Client)
+		datalakeClient := datalake.NewStoreClient(&objectStore)
+		j.AddPublisher(&datalakeClient)
+	}
+	j.AddLogger(ctx)
 	return
 }
 
@@ -684,9 +751,9 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 	user, _ := shared.Dig(version, []string{"by"}, true, false)
 	rich["by"] = user
 	rich["message"], _ = shared.Dig(version, []string{"message"}, false, true)
-	iVersion, _ := version["number"]
+	iVersion := version["number"]
 	rich["version"] = iVersion
-	rich["date"], _ = version["when"]
+	rich["date"] = version["when"]
 	////base, _ := shared.Dig(page, []string{"_links", "base"}, true, false)
 	webUI, _ := shared.Dig(page, []string{"_links", "webui"}, true, false)
 	////rich["url"] = base.(string) + webUI.(string)
@@ -869,8 +936,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		// shared.Printf("rich %+v\n", doc)
 		activityType, _ := doc["type"].(string)
 		activityType = "confluence_" + activityType
-		origType, _ := doc["original_type"].(string)
-		origType = "confluence_" + origType
 		iUpdatedOn := doc["updated_on"]
 		updatedOn, err = shared.TimeParseInterfaceString(iUpdatedOn)
 		shared.FatalOnError(err)
@@ -970,7 +1035,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			Body:            *body,
 			Contributors:    contributors,
 			SyncTimestamp:   time.Now(),
-			SourceTimestamp: createdAt,
+			SourceTimestamp: updatedOn,
 			//Children: ,
 		}
 
@@ -1012,7 +1077,27 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
 			data, err := j.GetModelData(ctx, *docs)
 			if err == nil {
-				// Push the event
+				if j.Publisher != nil {
+					insightsStr := "insights"
+					confStr := "confluence"
+					envStr := os.Getenv("STAGE")
+					// Push the event
+					for k, v := range data {
+						switch k {
+						case "created":
+							ev, _ := v[0].(insightsConf.ContentCreatedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, confStr, envStr, v)
+						case "updated":
+							ev, _ := v[0].(insightsConf.ContentUpdatedEvent)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, confStr, envStr, v)
+						default:
+							err = fmt.Errorf("unknown issue event type '%s'", k)
+
+						}
+
+					}
+				}
+
 			}
 			// FIXME: actual output to some consumer...
 			jsonBytes, err := jsoniter.Marshal(data)
