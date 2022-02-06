@@ -38,6 +38,8 @@ const (
 	ConfluenceConnector = "confluence-connector"
 	// ConfluenceDatasource
 	ConfluenceDataSource = "confluence"
+	// ConfluenceDefaultStream - Stream To Publish confluence
+	ConfluenceDefaultStream = "PUT-S3-confluence"
 )
 
 var (
@@ -175,6 +177,9 @@ func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
 	if j.Token != "" {
 		shared.AddRedacted(j.Token, false)
 	}
+
+	// confluence Kinesis stream
+	j.Stream = ConfluenceDefaultStream
 
 	// SSO: Handle either user,token pair or just a token
 	if j.User != "" {
@@ -750,9 +755,9 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 	user, _ := shared.Dig(version, []string{"by"}, true, false)
 	rich["by"] = user
 	rich["message"], _ = shared.Dig(version, []string{"message"}, false, true)
-	iVersion := version["number"]
+	iVersion, _ := version["number"]
 	rich["version"] = iVersion
-	rich["date"] = version["when"]
+	rich["date"], _ = version["when"]
 	////base, _ := shared.Dig(page, []string{"_links", "base"}, true, false)
 	webUI, _ := shared.Dig(page, []string{"_links", "webui"}, true, false)
 	////rich["url"] = base.(string) + webUI.(string)
@@ -1078,20 +1083,23 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			if err == nil {
 				if j.Publisher != nil {
 					insightsStr := "insights"
-					confStr := "confluence"
 					envStr := os.Getenv("STAGE")
 					// Push the event
 					for k, v := range data {
 						switch k {
 						case "created":
 							ev, _ := v[0].(insightsConf.ContentCreatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, confStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, "", envStr, v)
 						case "updated":
 							ev, _ := v[0].(insightsConf.ContentUpdatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, confStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, "", envStr, v)
 						default:
-							err = fmt.Errorf("unknown issue event type '%s'", k)
+							err = fmt.Errorf("unknown confluence event type '%s'", k)
+						}
 
+						if err != nil {
+							shared.Printf("Error: %+v\n", err)
+							return
 						}
 
 					}
