@@ -1216,9 +1216,14 @@ func main() {
 		shared.Printf("Error: %+v\n", err)
 		return
 	}
+
+	content := "content"
+	confluence.WriteLog(&ctx, logger.InProgress, content)
 	err = confluence.Sync(&ctx)
 	if err != nil {
 		shared.Printf("Error: %+v\n", err)
+		confluence.WriteLog(&ctx, logger.Failed, content+": "+err.Error())
 		return
 	}
+	confluence.WriteLog(&ctx, logger.Done, content)
 }
