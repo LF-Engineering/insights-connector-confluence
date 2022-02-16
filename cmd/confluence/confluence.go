@@ -34,9 +34,9 @@ const (
 	ConfluenceDefaultMaxContents = 1000
 	// ConfluenceDefaultSearchField - default search field
 	ConfluenceDefaultSearchField = "item_id"
-	// ConfluenceConnector
+	// ConfluenceConnector - connector name
 	ConfluenceConnector = "confluence-connector"
-	// ConfluenceDatasource
+	// ConfluenceDataSource - confluence datasource
 	ConfluenceDataSource = "confluence"
 	// ConfluenceDefaultStream - Stream To Publish confluence
 	ConfluenceDefaultStream = "PUT-S3-confluence"
@@ -50,6 +50,7 @@ var (
 	//gConfluenceMetaData = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
 )
 
+// Publisher - publish data to S3
 type Publisher interface {
 	PushEvents(action, source, eventType, subEventType, env string, data []interface{}) error
 }
@@ -1033,6 +1034,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			ServerURL:       j.URL,
 			ContentID:       entityID,
 			ContentURL:      url,
+			EndpointID:      confluenceSpaceID,
 			Version:         fmt.Sprintf("%f", version),
 			Type:            insightsConf.ContentType(activityType),
 			Title:           title,
