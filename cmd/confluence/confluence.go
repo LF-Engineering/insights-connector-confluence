@@ -1039,7 +1039,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			Type:            insightsConf.ContentType(activityType),
 			Title:           title,
 			Body:            *body,
-			Contributors:    contributors,
+			Contributors:    shared.DedupContributors(contributors),
 			SyncTimestamp:   time.Now(),
 			SourceTimestamp: updatedOn,
 			//Children: ,
