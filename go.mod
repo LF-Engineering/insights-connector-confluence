@@ -3,8 +3,8 @@ module github.com/LF-Engineering/insights-connector-confluence
 go 1.15
 
 require (
-	github.com/LF-Engineering/insights-datasource-shared v1.4.1
-	github.com/LF-Engineering/lfx-event-schema v0.1.7-0.20220215235235-23c0f1a9f6a2
+	github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220217072513-70c8e982c727
+	github.com/LF-Engineering/lfx-event-schema v0.1.8-0.20220217061411-fc08702ce26c
 	github.com/aws/aws-sdk-go v1.42.24
 	github.com/elastic/go-elasticsearch/v8 v8.0.0-20201229214741-2366c2514674 // indirect
 	github.com/json-iterator/go v1.1.11
