@@ -859,6 +859,29 @@ func (j *DSConfluence) GetRoleIdentity(item map[string]interface{}) (name, usern
 	return
 }
 
+func (j *DSConfluence) mapActivityType(actType string) insightsConf.ContentType {
+	/* types:
+	page,240195
+	attachment,98324
+	new_page,29520
+	comment,23960
+	blogpost,228
+	*/
+	switch actType {
+	case "confluence_page", "confluence_new_page":
+		return insightsConf.PageType
+	case "confluence_blogpost":
+		return insightsConf.BlogPostType
+	case "confluence_attachment":
+		return insightsConf.AttachmentType
+	case "confluence_comment":
+		return insightsConf.CommentType
+	default:
+		shared.Printf("warning: unknown activity type: '%s'\n", actType)
+	}
+	return insightsConf.ContentType(actType)
+}
+
 // GetModelData - return data in swagger format
 func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data map[string][]interface{}, err error) {
 	data = make(map[string][]interface{})
@@ -1036,7 +1059,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			ContentURL:      url,
 			EndpointID:      confluenceSpaceID,
 			Version:         fmt.Sprintf("%f", version),
-			Type:            insightsConf.ContentType(activityType),
+			Type:            j.mapActivityType(activityType),
 			Title:           title,
 			Body:            *body,
 			Contributors:    shared.DedupContributors(contributors),
