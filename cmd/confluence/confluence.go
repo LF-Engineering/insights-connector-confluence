@@ -24,6 +24,7 @@ import (
 	insightsConf "github.com/LF-Engineering/lfx-event-schema/service/insights/confluence"
 
 	shared "github.com/LF-Engineering/insights-datasource-shared"
+	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	jsoniter "github.com/json-iterator/go"
 )
 
@@ -67,6 +68,7 @@ type DSConfluence struct {
 	FlagUser        *string
 	FlagToken       *string
 	FlagSkipBody    *bool
+	FlagStream      *string
 	// Publisher & stream
 	Publisher
 	Stream string // stream to publish the data
@@ -76,6 +78,14 @@ type DSConfluence struct {
 // AddPublisher - sets Kinesis publisher
 func (j *DSConfluence) AddPublisher(publisher Publisher) {
 	j.Publisher = publisher
+}
+
+// PublisherPushEvents - this is a fake function to test publisher locally
+// FIXME: don't use when done implementing
+func (j *DSConfluence) PublisherPushEvents(ev, ori, src, cat, env string, v []interface{}) error {
+	data, err := jsoniter.Marshal(v)
+	shared.Printf("publish[ev=%s ori=%s src=%s cat=%s env=%s]: %d items: %+v -> %v\n", ev, ori, src, cat, env, len(v), string(data), err)
+	return nil
 }
 
 // AddLogger - adds logger
@@ -104,7 +114,6 @@ func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) {
 		Configuration: []map[string]string{
 			{
 				"CONFLUENCE_URL": j.URL,
-				"ES_URL":         ctx.ESURL,
 				"ProjectSlug":    ctx.Project,
 			}},
 		Status:    status,
@@ -121,10 +130,17 @@ func (j *DSConfluence) AddFlags() {
 	j.FlagUser = flag.String("confluence-user", "", "User: if user is provided then we assume that we don't have base64 encoded user:token yet")
 	j.FlagToken = flag.String("confluence-token", "", "Token: if user is not specified we assume that token already contains \"<username>:<your-api-token>\"")
 	j.FlagSkipBody = flag.Bool("confluence-skip-body", false, "Do not retrieve page body from API and do not store it (schema allows null for body)")
+	j.FlagStream = flag.String("confluence-stream", ConfluenceDefaultStream, "confluence kinesis stream name, for example PUT-S3-confluence")
 }
 
 // ParseArgs - parse confluence specific environment variables
 func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
+	// Cryptography
+	encrypt, err := cryptography.NewEncryptionClient()
+	if err != nil {
+		return err
+	}
+
 	// Confluence URL
 	if shared.FlagPassed(ctx, "url") && *j.FlagURL != "" {
 		j.URL = *j.FlagURL
@@ -159,7 +175,10 @@ func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
 
 	// SSO User
 	if shared.FlagPassed(ctx, "user") && *j.FlagUser != "" {
-		j.User = *j.FlagUser
+		j.User, err = encrypt.Decrypt(*j.FlagUser)
+		if err != nil {
+			return err
+		}
 	}
 	if ctx.EnvSet("USER") {
 		j.User = ctx.Env("USER")
@@ -170,7 +189,10 @@ func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
 
 	// SSO Token
 	if shared.FlagPassed(ctx, "token") && *j.FlagToken != "" {
-		j.Token = *j.FlagToken
+		j.Token, err = encrypt.Decrypt(*j.FlagToken)
+		if err != nil {
+			return err
+		}
 	}
 	if ctx.EnvSet("TOKEN") {
 		j.Token = ctx.Env("TOKEN")
@@ -181,6 +203,12 @@ func (j *DSConfluence) ParseArgs(ctx *shared.Ctx) (err error) {
 
 	// confluence Kinesis stream
 	j.Stream = ConfluenceDefaultStream
+	if shared.FlagPassed(ctx, "stream") {
+		j.Stream = *j.FlagStream
+	}
+	if ctx.EnvSet("STREAM") {
+		j.Stream = ctx.Env("STREAM")
+	}
 
 	// SSO: Handle either user,token pair or just a token
 	if j.User != "" {
@@ -209,7 +237,7 @@ func (j *DSConfluence) Validate() (err error) {
 // Init - initialize confluence data source
 func (j *DSConfluence) Init(ctx *shared.Ctx) (err error) {
 	shared.NoSSLVerify()
-	ctx.InitEnv("confluence")
+	ctx.InitEnv("Confluence")
 	j.AddFlags()
 	ctx.Init()
 	err = j.ParseArgs(ctx)
@@ -885,18 +913,15 @@ func (j *DSConfluence) mapActivityType(actType string) insightsConf.ContentType 
 // GetModelData - return data in swagger format
 func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data map[string][]interface{}, err error) {
 	data = make(map[string][]interface{})
-
 	defer func() {
 		if err != nil {
 			return
 		}
-
 		contentBaseEvent := insightsConf.ContentBaseEvent{
 			Connector:        insights.ConfluenceConnector,
 			ConnectorVersion: ConfluenceBackendVersion,
 			Source:           insights.ConfluenceSource,
 		}
-
 		for k, v := range data {
 			switch k {
 			case "created":
@@ -919,7 +944,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 					})
 				}
 				data[k] = ary
-
 			case "updated":
 				baseEvent := service.BaseEvent{
 					Type: service.EventType(insightsConf.ContentUpdatedEvent{}.Event()),
@@ -940,108 +964,128 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 					})
 				}
 				data[k] = ary
-
 			default:
 				err = fmt.Errorf("unknown content '%s' event", k)
 				return
 			}
-
 		}
-
 	}()
-
-	userUUID, confluenceContentID, confluenceSpaceID := "", "", ""
+	// generate map of entityID:first_updated_on, entityID:version
+	createDates := make(map[string]time.Time)
+	// createDatesVersions := make(map[string]float64)
+	for _, iDoc := range docs {
+		doc, _ := iDoc.(map[string]interface{})
+		entityID, _ := doc["id"].(string)
+		// version, _ := doc["version"].(float64)
+		iUpdatedOn := doc["updated_on"]
+		updatedOn, err := shared.TimeParseInterfaceString(iUpdatedOn)
+		shared.FatalOnError(err)
+		currentMin, ok := createDates[entityID]
+		if !ok {
+			createDates[entityID] = updatedOn
+			// createDatesVersions[entityID] = version
+			continue
+		}
+		if updatedOn.Before(currentMin) {
+			createDates[entityID] = updatedOn
+			// createDatesVersions[entityID] = version
+		}
+	}
+	// Generate children IDs
+	children := make(map[string]map[string]struct{})
+	for _, iDoc := range docs {
+		doc, _ := iDoc.(map[string]interface{})
+		iAIDs, ok := doc["ancestors_ids"]
+		if !ok {
+			continue
+		}
+		aIDs, ok := iAIDs.([]interface{})
+		if !ok {
+			continue
+		}
+		entityID, _ := doc["id"].(string)
+		for _, aID := range aIDs {
+			aid, _ := aID.(string)
+			_, ok := children[aid]
+			if !ok {
+				children[aid] = make(map[string]struct{})
+			}
+			children[aid][entityID] = struct{}{}
+		}
+	}
+	// Process contents versions
+	userID, confluenceContentID, confluenceSpaceID := "", "", ""
 	var updatedOn time.Time
 	source := ConfluenceDataSource
 	for _, iDoc := range docs {
-		var (
-			createdAt time.Time
-			body      *string
-			space     *string
-			//ancestors []*models.Ancestor
-		)
+		var createdAt time.Time
 		doc, _ := iDoc.(map[string]interface{})
-		// shared.Printf("rich %+v\n", doc)
+		entityID, _ := doc["id"].(string)
+		kids := []string{}
+		kidsMap, ok := children[entityID]
+		if ok {
+			for kid := range kidsMap {
+				kids = append(kids, kid)
+			}
+		}
+		version, _ := doc["version"].(float64)
 		activityType, _ := doc["type"].(string)
 		activityType = "confluence_" + activityType
+		contentType := j.mapActivityType(activityType)
 		iUpdatedOn := doc["updated_on"]
 		updatedOn, err = shared.TimeParseInterfaceString(iUpdatedOn)
 		shared.FatalOnError(err)
 		if activityType == "confluence_new_page" {
 			createdAt = updatedOn
-		}
-
-		if !j.SkipBody {
-			sBody, okBody := doc["body"].(string)
-			if okBody {
-				body = &sBody
+		} else {
+			var ok bool
+			createdAt, ok = createDates[entityID]
+			if !ok {
+				if ctx.Debug > 0 {
+					shared.Printf("WARNING: cannot find creation date for page %s version=%s\n", entityID, version)
+				}
+				createdAt = updatedOn
 			}
 		}
+		sBody := ""
+		if !j.SkipBody {
+			sBody, _ = doc["body"].(string)
+		}
 		avatar, _ := doc["avatar"].(string)
-		entityID, _ := doc["id"].(string)
 		title, _ := doc["title"].(string)
 		url, _ := doc["url"].(string)
-		sSpace, okSpace := doc["space"].(string)
-		if okSpace {
-			space = &sSpace
-		}
-		version, _ := doc["version"].(float64)
+		sSpace, _ := doc["space"].(string)
 		name, _ := doc["by_name"].(string)
 		username, _ := doc["by_username"].(string)
 		email, _ := doc["by_email"].(string)
-		name, username = shared.PostprocessNameUsername(name, username, email)
-		//userUUID := shared.UUIDAffs(ctx, source, email, name, username)
-		//iAIDs, ok := doc["ancestors_ids"]
-
-		userUUID, err = user.GenerateIdentity(&source, &email, &name, &username)
+		// No identity data postprocessing in V2
+		// name, username = shared.PostprocessNameUsername(name, username, email)
+		userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 		if err != nil {
 			shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 			return
 		}
-
-		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, activityType, entityID)
+		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, sSpace, string(contentType), entityID)
 		if err != nil {
-			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, activityType, entityID, err, doc)
+			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, sSpace, contentType, entityID, err, doc)
 			return
 		}
-
-		confluenceSpaceID, err = insightsConf.GenerateConfluenceSpaceID(j.URL, *space)
+		confluenceSpaceID, err = insightsConf.GenerateConfluenceSpaceID(j.URL, sSpace)
 		if err != nil {
-			shared.Printf("GenerateConfluenceSpaceID(%s,%s,%s): %+v for %+v", j.URL, space, err, doc)
+			shared.Printf("GenerateConfluenceSpaceID(%s,%s,%s): %+v for %+v", j.URL, sSpace, err, doc)
 			return
 		}
-
-		// if ok {
-		// 	aIDs, ok := iAIDs.([]interface{})
-		// 	if ok {
-		// 		iATitles, _ := doc["ancestors_titles"]
-		// 		iALinks, _ := doc["ancestors_links"]
-		// 		aTitles, _ := iATitles.([]interface{})
-		// 		aLinks, _ := iALinks.([]interface{})
-		// 		for i, aID := range aIDs {
-		// 			aid, _ := aID.(string)
-		// 			aTitle, _ := aTitles[i].(string)
-		// 			aLink, _ := aLinks[i].(string)
-		// 			ancestors = append(ancestors, &models.Ancestor{
-		// 				EntityID: aid,
-		// 				Title:    aTitle,
-		// 				URL:      aLink,
-		// 			})
-		// 		}
-		// 	}
-		// }
-
 		confSpace := insightsConf.Space{
-			ID:       confluenceSpaceID,
-			SpaceKey: *space,
+			ID:      confluenceSpaceID,
+			URL:     j.URL,
+			SpaceID: sSpace,
 		}
-
 		contributors := []insights.Contributor{
 			{
 				Role:   insights.AuthorRole,
 				Weight: 1.0,
 				Identity: user.UserIdentityObjectBase{
-					ID:         userUUID,
+					ID:         userID,
 					Email:      email,
 					IsVerified: false,
 					Name:       name,
@@ -1053,31 +1097,28 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		}
 		content := insightsConf.Content{
 			ID:              confluenceContentID,
+			EndpointID:      confluenceSpaceID,
 			Space:           confSpace,
 			ServerURL:       j.URL,
 			ContentID:       entityID,
 			ContentURL:      url,
-			EndpointID:      confluenceSpaceID,
-			Version:         fmt.Sprintf("%f", version),
-			Type:            j.mapActivityType(activityType),
+			Version:         fmt.Sprintf("%.0f", version),
+			Type:            contentType,
 			Title:           title,
-			Body:            *body,
+			Body:            sBody,
 			Contributors:    shared.DedupContributors(contributors),
 			SyncTimestamp:   time.Now(),
 			SourceTimestamp: updatedOn,
-			//Children: ,
+			Children:        kids,
 		}
-
 		isNew := false
 		if !updatedOn.After(createdAt) {
 			isNew = true
 		}
-
 		key := "updated"
 		if isNew {
 			key = "created"
 		}
-
 		ary, ok := data[key]
 		if !ok {
 			ary = []interface{}{content}
@@ -1085,7 +1126,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			ary = append(ary, content)
 		}
 		data[key] = ary
-
 		gMaxUpdatedAtMtx.Lock()
 		if updatedOn.After(gMaxUpdatedAt) {
 			gMaxUpdatedAt = updatedOn
@@ -1102,42 +1142,46 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 	shared.Printf("input processing(%d/%d/%v)\n", len(items), len(*docs), final)
 	outputDocs := func() {
 		if len(*docs) > 0 {
+			var (
+				data      map[string][]interface{}
+				jsonBytes []byte
+				err       error
+			)
 			// actual output
 			shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
-			data, err := j.GetModelData(ctx, *docs)
+			data, err = j.GetModelData(ctx, *docs)
 			if err == nil {
 				if j.Publisher != nil {
 					insightsStr := "insights"
+					contentsStr := "historical contents"
 					envStr := os.Getenv("STAGE")
 					// Push the event
 					for k, v := range data {
 						switch k {
 						case "created":
 							ev, _ := v[0].(insightsConf.ContentCreatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, "", envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
 						case "updated":
 							ev, _ := v[0].(insightsConf.ContentUpdatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, "", envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
 						default:
 							err = fmt.Errorf("unknown confluence event type '%s'", k)
 						}
-
 						if err != nil {
-							shared.Printf("Error: %+v\n", err)
-							return
+							break
 						}
-
 					}
+				} else {
+					jsonBytes, err = jsoniter.Marshal(data)
 				}
-
 			}
-			// FIXME: actual output to some consumer...
-			jsonBytes, err := jsoniter.Marshal(data)
 			if err != nil {
 				shared.Printf("Error: %+v\n", err)
 				return
 			}
-			shared.Printf("%s\n", string(jsonBytes))
+			if j.Publisher == nil {
+				shared.Printf("%s\n", string(jsonBytes))
+			}
 			*docs = []interface{}{}
 			gMaxUpdatedAtMtx.Lock()
 			defer gMaxUpdatedAtMtx.Unlock()
