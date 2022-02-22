@@ -1,16 +1,35 @@
-module github.com/LF-Engineering/insights-connector-confluence
+module github.com/LF-Engineering/insights-datasource-confluence
 
-go 1.15
+go 1.17
 
 require (
-	github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220221062423-d8079faae5d9
-	github.com/LF-Engineering/lfx-event-schema v0.1.8-0.20220218174420-9b6bda4ccec8
-	github.com/aws/aws-sdk-go v1.42.24
+	github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220221135138-2ddb5a296ba3
+	github.com/LF-Engineering/lfx-event-schema v0.1.8-0.20220222133749-01c014bbf987
+	github.com/aws/aws-sdk-go v1.43.3
+	github.com/json-iterator/go v1.1.12
+)
+
+require (
+	github.com/avast/retry-go v3.0.0+incompatible // indirect
+	github.com/aws/aws-sdk-go-v2 v1.11.2 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.6.0 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.3.2 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.4.0 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.2 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.0.2 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.2.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.2.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.17.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.3.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.6.1 // indirect
+	github.com/aws/smithy-go v1.9.0 // indirect
 	github.com/elastic/go-elasticsearch/v8 v8.0.0-20201229214741-2366c2514674 // indirect
-	github.com/json-iterator/go v1.1.11
-	github.com/kr/text v0.2.0 // indirect
-	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
-	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
+	github.com/google/uuid v1.3.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
+	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/sirupsen/logrus v1.8.1 // indirect
+	golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1 // indirect
+	golang.org/x/text v0.3.7 // indirect
 )
