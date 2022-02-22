@@ -1,4 +1,4 @@
-module github.com/LF-Engineering/insights-datasource-confluence
+module github.com/LF-Engineering/insights-connector-confluence
 
 go 1.17
 
