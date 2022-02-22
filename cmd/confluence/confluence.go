@@ -976,7 +976,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 	for _, iDoc := range docs {
 		doc, _ := iDoc.(map[string]interface{})
 		entityID, _ := doc["id"].(string)
-		version, _ := doc["version"].(float64)
+		// version, _ := doc["version"].(float64)
 		iUpdatedOn := doc["updated_on"]
 		updatedOn, err := shared.TimeParseInterfaceString(iUpdatedOn)
 		shared.FatalOnError(err)
