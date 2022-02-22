@@ -1040,8 +1040,11 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		} else {
 			var ok bool
 			createdAt, ok = createDates[entityID]
-			if !ok && ctx.Debug > 0 {
-				shared.Printf("WARNING: cannot find creation date for page %s version=%s\n", entityID, version)
+			if !ok {
+				if ctx.Debug > 0 {
+					shared.Printf("WARNING: cannot find creation date for page %s version=%s\n", entityID, version)
+				}
+				createdAt = updatedOn
 			}
 		}
 		sBody := ""
