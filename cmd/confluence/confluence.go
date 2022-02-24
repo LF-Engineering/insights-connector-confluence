@@ -273,10 +273,10 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 	if !ok {
 		ancestors = []interface{}{}
 	}
+	content["ancestors"] = ancestors
 	contentURL, _ := iContentURL.(string)
 	contentURL = j.URL + contentURL
 	content["content_url"] = contentURL
-	content["ancestors"] = ancestors
 	iVersionNumber, _ := shared.Dig(content, []string{"version", "number"}, true, false)
 	lastVersion := int(iVersionNumber.(float64))
 	if lastVersion == 1 {
@@ -307,9 +307,9 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 	for {
 		var url string
 		if j.SkipBody {
-			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("history,version")
+			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("history,version,space")
 		} else {
-			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,version")
+			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,version,space")
 		}
 		if ctx.Debug > 1 {
 			shared.Printf("historical content url: %s\n", url)
@@ -410,9 +410,9 @@ func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, toDate, 
 	if next == "i" {
 		////url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d&expand=ancestors", j.MaxContents)
 		if j.SkipBody {
-			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version")
+			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version,space")
 		} else {
-			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version")
+			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version,space")
 		}
 	} else {
 		url = j.URL + next
@@ -764,6 +764,7 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 		err = fmt.Errorf("missing data field in item %+v", shared.DumpKeys(item))
 		return
 	}
+	// shared.Printf("page = %s\n", shared.PrettyPrint(page))
 	for _, field := range []string{"type", "id", "status", "title", "content_url"} {
 		rich[field], _ = page[field]
 	}
@@ -791,12 +792,19 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 	webUI, _ := shared.Dig(page, []string{"_links", "webui"}, true, false)
 	////rich["url"] = base.(string) + webUI.(string)
 	rich["url"] = j.URL + webUI.(string)
-	iSpace, ok := shared.Dig(page, []string{"_expandable", "space"}, false, true)
-	if ok {
-		space, _ := iSpace.(string)
-		space = strings.Replace(space, "/rest/api/space/", "", -1)
-		rich["space"] = space
-	}
+	// This code works when we are not expanding space
+	/*
+		  iSpace, ok := shared.Dig(page, []string{"_expandable", "space"}, false, true)
+			if ok {
+				space, _ := iSpace.(string)
+				space = strings.Replace(space, "/rest/api/space/", "", -1)
+				rich["space"] = space
+			}
+	*/
+	rich["space_id"], _ = shared.Dig(page, []string{"space", "id"}, false, true)
+	rich["space_key"], _ = shared.Dig(page, []string{"space", "key"}, false, true)
+	rich["space_name"], _ = shared.Dig(page, []string{"space", "name"}, false, true)
+	rich["space_type"], _ = shared.Dig(page, []string{"space", "type"}, false, true)
 	var (
 		ancestorIDs    []interface{}
 		ancestorTitles []interface{}
@@ -1054,7 +1062,20 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		avatar, _ := doc["avatar"].(string)
 		title, _ := doc["title"].(string)
 		url, _ := doc["url"].(string)
-		sSpace, _ := doc["space"].(string)
+		spaceID := ""
+		iSpaceID, ok := doc["space_id"]
+		if ok {
+			fSpaceID, _ := iSpaceID.(float64)
+			spaceID = fmt.Sprintf("%.0f", fSpaceID)
+		}
+		nonEmptySpaceID := spaceID
+		if nonEmptySpaceID == "" {
+			nonEmptySpaceID = "0"
+		}
+		spaceKey, _ := doc["space_key"].(string)
+		spaceName, _ := doc["space_name"].(string)
+		spaceType, _ := doc["space_type"].(string)
+		// shared.Printf("space = '%s,%s,%s,%s,%s'\n", spaceID, nonEmptySpaceID, spaceKey, spaceName, spaceType)
 		name, _ := doc["by_name"].(string)
 		username, _ := doc["by_username"].(string)
 		email, _ := doc["by_email"].(string)
@@ -1065,20 +1086,23 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 			return
 		}
-		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, sSpace, string(contentType), entityID)
+		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, nonEmptySpaceID, string(contentType), entityID)
 		if err != nil {
-			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, sSpace, contentType, entityID, err, doc)
+			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, contentType, entityID, err, doc)
 			return
 		}
-		confluenceSpaceID, err = insightsConf.GenerateConfluenceSpaceID(j.URL, sSpace)
+		confluenceSpaceID, err = insightsConf.GenerateConfluenceSpaceID(j.URL, nonEmptySpaceID)
 		if err != nil {
-			shared.Printf("GenerateConfluenceSpaceID(%s,%s,%s): %+v for %+v", j.URL, sSpace, err, doc)
+			shared.Printf("GenerateConfluenceSpaceID(%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, err, doc)
 			return
 		}
 		confSpace := insightsConf.Space{
-			ID:      confluenceSpaceID,
-			URL:     j.URL,
-			SpaceID: sSpace,
+			ID:        confluenceSpaceID,
+			URL:       j.URL,
+			SpaceID:   spaceID,
+			SpaceKey:  spaceKey,
+			SpaceName: spaceName,
+			SpaceType: spaceType,
 		}
 		contributors := []insights.Contributor{
 			{
@@ -1285,8 +1309,8 @@ func main() {
 		shared.Printf("Error: %+v\n", err)
 		return
 	}
-
 	content := "content"
+	shared.AddLogger(&confluence.Logger, ConfluenceDataSource, logger.Internal, []map[string]string{{"CONFLUENCE_URL": confluence.URL, "ProjectSlug": ctx.Project}})
 	confluence.WriteLog(&ctx, logger.InProgress, content)
 	err = confluence.Sync(&ctx)
 	if err != nil {
