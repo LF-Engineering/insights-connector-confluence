@@ -1309,8 +1309,8 @@ func main() {
 		shared.Printf("Error: %+v\n", err)
 		return
 	}
-
 	content := "content"
+	shared.AddLogger(&confluence.Logger, ConfluenceDataSource, logger.Internal, []map[string]string{{"CONFLUENCE_URL": confluence.URL, "ProjectSlug": ctx.Project}})
 	confluence.WriteLog(&ctx, logger.InProgress, content)
 	err = confluence.Sync(&ctx)
 	if err != nil {
