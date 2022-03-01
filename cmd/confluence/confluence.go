@@ -1177,7 +1177,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			if err == nil {
 				if j.Publisher != nil {
 					insightsStr := "insights"
-					contentsStr := "historical contents"
+					contentsStr := "contents"
 					envStr := os.Getenv("STAGE")
 					// Push the event
 					for k, v := range data {
