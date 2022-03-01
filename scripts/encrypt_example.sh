@@ -12,4 +12,4 @@ export CONFLUENCE_NO_INCREMENTAL=1
 #../insights-datasource-github/encrypt "`cat ./secrets/token.secret`" > ./secrets/token.encrypted.secret || exit 3
 #./confluence --confluence-url='https://wiki.riscv.org' --confluence-debug=0 --confluence-es-url="${ESURL}" --confluence-user="`cat ./secrets/user.encrypted.secret`" --confluence-token="`cat ./secrets/token.encrypted.secret`" --confluence-stream="${STREAM}" $* 2>&1 | tee run.log
 #./confluence --confluence-url='https://wiki.lfai.foundation' --confluence-debug=0 --confluence-es-url="${ESURL}" --confluence-stream="${STREAM}" $* 2>&1 | tee run2.log
-./confluence --confluence-url='https://wiki.openmainframeproject.org' --confluence-debug=1 --confluence-es-url="${ESURL}" --confluence-stream="${STREAM}" $* 2>&1 | tee run3.log
+./confluence --confluence-url='https://wiki.o-ran-sc.org' --confluence-debug=0 --confluence-es-url="${ESURL}" --confluence-stream="${STREAM}" $* 2>&1 | tee run3.log
