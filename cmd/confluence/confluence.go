@@ -307,9 +307,9 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 	for {
 		var url string
 		if j.SkipBody {
-			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("history,version,space")
+			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("history,history.lastUpdated,version,space")
 		} else {
-			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,version,space")
+			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,history.lastUpdated,version,space")
 		}
 		if ctx.Debug > 1 {
 			shared.Printf("historical content url: %s\n", url)
@@ -410,9 +410,9 @@ func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, toDate, 
 	if next == "i" {
 		////url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("lastModified>='"+fromDate+"' order by lastModified") + fmt.Sprintf("&limit=%d&expand=ancestors", j.MaxContents)
 		if j.SkipBody {
-			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version,space")
+			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("ancestors,version,space,history,history.lastUpdated")
 		} else {
-			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version,space")
+			url = j.URL + "/rest/api/content/search?cql=" + neturl.QueryEscape("(lastModified>='"+fromDate+"' and lastModified<='"+toDate+"') order by lastModified") + fmt.Sprintf("&limit=%d", j.MaxContents) + "&expand=" + neturl.QueryEscape("body.storage,ancestors,version,space,history,history.lastUpdated")
 		}
 	} else {
 		url = j.URL + next
@@ -863,7 +863,19 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 		avatar, _ := iAvatar.(string)
 		rich["avatar"] = j.URL + avatar
 	}
+	iAvatar, ok = shared.Dig(page, []string{"history", "createdBy", "profilePicture", "path"}, false, true)
+	if ok {
+		avatar, _ := iAvatar.(string)
+		rich["created_by_avatar"] = j.URL + avatar
+	}
+	iAvatar, ok = shared.Dig(page, []string{"history", "lastUpdated", "by", "profilePicture", "path"}, false, true)
+	if ok {
+		avatar, _ := iAvatar.(string)
+		rich["updated_by_avatar"] = j.URL + avatar
+	}
 	rich["by_name"], rich["by_username"], rich["by_email"] = j.GetRoleIdentity(item)
+	rich["created_by_name"], rich["created_by_username"], rich["created_by_email"] = j.GetCreatedRoleIdentity(ctx, item)
+	rich["updated_by_name"], rich["updated_by_username"], rich["updated_by_email"] = j.GetLastUpdatedRoleIdentity(ctx, item)
 	// From shared
 	rich["metadata__enriched_on"] = time.Now()
 	// rich[ProjectSlug] = ctx.ProjectSlug
@@ -871,9 +883,69 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 	return
 }
 
-// GetRoleIdentity - return identity data
+// GetRoleIdentity - return identity data for version->by
 func (j *DSConfluence) GetRoleIdentity(item map[string]interface{}) (name, username, email string) {
-	iUser, ok := shared.Dig(item, []string{"data", "version", "by"}, true, false)
+	iUser, _ := shared.Dig(item, []string{"data", "version", "by"}, true, false)
+	user, _ := iUser.(map[string]interface{})
+	iUserName, ok := user["username"]
+	if ok {
+		username, _ = iUserName.(string)
+	} else {
+		iPublicName, ok := user["publicName"]
+		if ok {
+			username, _ = iPublicName.(string)
+		}
+	}
+	iDisplayName, ok := user["displayName"]
+	if ok {
+		name, _ = iDisplayName.(string)
+	}
+	iEmail, ok := user["email"]
+	if ok {
+		email, _ = iEmail.(string)
+	}
+	return
+}
+
+// GetCreatedRoleIdentity - return identity data for history->createdBy
+func (j *DSConfluence) GetCreatedRoleIdentity(ctx *shared.Ctx, item map[string]interface{}) (name, username, email string) {
+	iUser, ok := shared.Dig(item, []string{"data", "history", "createdBy"}, false, true)
+	if !ok {
+		if ctx.Debug > 0 {
+			fmt.Printf("GetCreatedRoleIdentity -> no history->createdBy in %s\n", shared.PrettyPrint(item))
+		}
+		return
+	}
+	user, _ := iUser.(map[string]interface{})
+	iUserName, ok := user["username"]
+	if ok {
+		username, _ = iUserName.(string)
+	} else {
+		iPublicName, ok := user["publicName"]
+		if ok {
+			username, _ = iPublicName.(string)
+		}
+	}
+	iDisplayName, ok := user["displayName"]
+	if ok {
+		name, _ = iDisplayName.(string)
+	}
+	iEmail, ok := user["email"]
+	if ok {
+		email, _ = iEmail.(string)
+	}
+	return
+}
+
+// GetLastUpdatedRoleIdentity - return identity data for history->lastUpdated->by
+func (j *DSConfluence) GetLastUpdatedRoleIdentity(ctx *shared.Ctx, item map[string]interface{}) (name, username, email string) {
+	iUser, ok := shared.Dig(item, []string{"data", "history", "lastUpdated", "by"}, false, true)
+	if !ok {
+		if ctx.Debug > 0 {
+			fmt.Printf("GetLastUpdatedRoleIdentity -> no history->lastUpdated->by in %s\n", shared.PrettyPrint(item))
+		}
+		return
+	}
 	user, _ := iUser.(map[string]interface{})
 	iUserName, ok := user["username"]
 	if ok {
@@ -1086,6 +1158,75 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 			return
 		}
+		contributors := []insights.Contributor{
+			{
+				Role:   insights.AuthorRole,
+				Weight: 1.0,
+				Identity: user.UserIdentityObjectBase{
+					ID:         userID,
+					Email:      email,
+					IsVerified: false,
+					Name:       name,
+					Username:   username,
+					Source:     ConfluenceDataSource,
+					Avatar:     avatar,
+				},
+			},
+		}
+		name, _ = doc["created_by_name"].(string)
+		username, _ = doc["created_by_username"].(string)
+		email, _ = doc["created_by_email"].(string)
+		if name != "" || username != "" || email != "" {
+			avatar, _ = doc["created_by_avatar"].(string)
+			// No identity data postprocessing in V2
+			// name, username = shared.PostprocessNameUsername(name, username, email)
+			userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+			if err != nil {
+				shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+				return
+			}
+			contributor := insights.Contributor{
+				Role:   insights.AuthorRole,
+				Weight: 1.0,
+				Identity: user.UserIdentityObjectBase{
+					ID:         userID,
+					Email:      email,
+					IsVerified: false,
+					Name:       name,
+					Username:   username,
+					Source:     ConfluenceDataSource,
+					Avatar:     avatar,
+				},
+			}
+			contributors = append(contributors, contributor)
+		}
+		name, _ = doc["updated_by_name"].(string)
+		username, _ = doc["updated_by_username"].(string)
+		email, _ = doc["updated_by_email"].(string)
+		if name != "" || username != "" || email != "" {
+			avatar, _ = doc["updated_by_avatar"].(string)
+			// No identity data postprocessing in V2
+			// name, username = shared.PostprocessNameUsername(name, username, email)
+			userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+			if err != nil {
+				shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+				return
+			}
+			contributor := insights.Contributor{
+				Role:   insights.AuthorRole,
+				Weight: 1.0,
+				Identity: user.UserIdentityObjectBase{
+					ID:         userID,
+					Email:      email,
+					IsVerified: false,
+					Name:       name,
+					Username:   username,
+					Source:     ConfluenceDataSource,
+					Avatar:     avatar,
+				},
+			}
+			contributors = append(contributors, contributor)
+		}
 		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, nonEmptySpaceID, string(contentType), entityID)
 		if err != nil {
 			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, contentType, entityID, err, doc)
@@ -1103,21 +1244,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			SpaceKey:  spaceKey,
 			SpaceName: spaceName,
 			SpaceType: spaceType,
-		}
-		contributors := []insights.Contributor{
-			{
-				Role:   insights.AuthorRole,
-				Weight: 1.0,
-				Identity: user.UserIdentityObjectBase{
-					ID:         userID,
-					Email:      email,
-					IsVerified: false,
-					Name:       name,
-					Username:   username,
-					Source:     ConfluenceDataSource,
-					Avatar:     avatar,
-				},
-			},
 		}
 		content := insightsConf.Content{
 			ID:              confluenceContentID,
