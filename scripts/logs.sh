@@ -1,7 +1,7 @@
 #!/bin/bash
 if [ -z "$ES_LOG" ]
 then
-  ES_LOG="`cat ./secrets/ES_LOG_URL.secret`"
+  ES_LOG="`cat ./secrets/ES_LOG_URL_FULL.secret`"
 fi
 if [ -z "$ES_LOG" ]
 then

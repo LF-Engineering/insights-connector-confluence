@@ -3,7 +3,7 @@ module github.com/LF-Engineering/insights-connector-confluence
 go 1.17
 
 require (
-	github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220304200004-185b1ef33f01
+	github.com/LF-Engineering/insights-datasource-shared v1.4.2-0.20220309073146-6f42257b2791
 	github.com/LF-Engineering/lfx-event-schema v0.1.9-0.20220305065714-d0c576bbcaba
 	github.com/aws/aws-sdk-go v1.43.3
 	github.com/json-iterator/go v1.1.12

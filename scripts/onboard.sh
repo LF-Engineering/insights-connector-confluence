@@ -20,10 +20,10 @@ else
 fi
 if [ ! -z "${DBG}" ]
 then
-  echo "curl -s -XPOST -H Content-Type: application/json -H Authorization: Bearer ${TOKEN} https://api-gw.dev.platform.linuxfoundation.org/insights-service/v2/connectors/confluence -d{\"confluence_url\":\"${1}\",\"confluence_debug\":\"${DBG}\"} | jq -rS ."
+  echo "curl -s -XPOST -H Content-Type: application/json -H Authorization: Bearer ${TOKEN} https://api-gw.dev.platform.linuxfoundation.org/insights-service/v2/connectors/confluence -d{\"confluence_url\":\"${1}\",\"confluence_debug\":${DBG}} | jq -rS ."
 fi
 if [ -z "${DBG}" ]
 then
   DBG="0"
 fi
-curl -s -XPOST -H 'Content-Type: application/json' -H "Authorization: Bearer ${TOKEN}" 'https://api-gw.dev.platform.linuxfoundation.org/insights-service/v2/connectors/confluence' -d"{\"confluence_url\":\"${1}\",\"confluence_debug\":\"${DBG}\"}" | jq -rS '.'
+curl -s -XPOST -H 'Content-Type: application/json' -H "Authorization: Bearer ${TOKEN}" 'https://api-gw.dev.platform.linuxfoundation.org/insights-service/v2/connectors/confluence' -d"{\"confluence_url\":\"${1}\",\"confluence_debug\":${DBG}}" | jq -rS '.'

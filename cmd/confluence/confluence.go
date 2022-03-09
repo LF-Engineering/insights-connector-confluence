@@ -1437,6 +1437,10 @@ func main() {
 		shared.Printf("Error: %+v\n", err)
 		return
 	}
+	// xxx
+	ctx.Debug = 1
+	shared.SetSyncMode(true, false)
+	shared.SetLogLoggerError(true)
 	content := "content"
 	shared.AddLogger(&confluence.Logger, ConfluenceDataSource, logger.Internal, []map[string]string{{"CONFLUENCE_URL": confluence.URL, "ProjectSlug": ctx.Project}})
 	confluence.WriteLog(&ctx, logger.InProgress, content)

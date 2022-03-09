@@ -5,6 +5,10 @@ export AWS_SECRET_ACCESS_KEY="`cat ./secrets/AWS_SECRET_ACCESS_KEY.dev.secret`"
 export ENCRYPTION_KEY="`cat ./secrets/ENCRYPTION_KEY.dev.secret`"
 export ENCRYPTION_BYTES="`cat ./secrets/ENCRYPTION_BYTES.dev.secret`"
 export ESURL="`cat ./secrets/ES_URL.prod.secret`"
+#export ELASTIC_LOG_URL="`cat ./secrets/ES_LOG_URL_FULL.secret`"
+export ELASTIC_LOG_URL="`cat ./secrets/ES_LOG_URL.secret`"
+export ELASTIC_LOG_USER="`cat ./secrets/ES_LOG_USER.secret`"
+export ELASTIC_LOG_PASSWORD="`cat ./secrets/ES_LOG_PASSWORD.secret`"
 export STREAM=''
 export CONFLUENCE_NO_INCREMENTAL=1
 # curl -s -XPOST -H 'Content-Type: application/json' "${ESURL}/last-update-cache/_delete_by_query" -d'{"query":{"term":{"key.keyword":"Confluence:https://wiki.lfnetworking.org"}}}' | jq -rS '.' || exit 1
