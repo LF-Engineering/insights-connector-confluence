@@ -1438,7 +1438,7 @@ func main() {
 		return
 	}
 	// xxx
-	ctx.Debug = 1
+	ctx.Debug = 2
 	shared.SetSyncMode(true, false)
 	shared.SetLogLoggerError(true)
 	content := "content"
