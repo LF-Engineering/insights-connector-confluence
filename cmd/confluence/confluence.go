@@ -1444,6 +1444,7 @@ func main() {
 	// To enable debug mode: end
 	content := "content"
 	shared.SetSyncMode(true, false)
+	shared.SetLogLoggerError(false)
 	shared.AddLogger(&confluence.Logger, ConfluenceDataSource, logger.Internal, []map[string]string{{"CONFLUENCE_URL": confluence.URL, "ProjectSlug": ctx.Project}})
 	confluence.WriteLog(&ctx, logger.InProgress, content)
 	err = confluence.Sync(&ctx)
