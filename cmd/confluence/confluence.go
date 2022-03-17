@@ -41,6 +41,10 @@ const (
 	ConfluenceDataSource = "confluence"
 	// ConfluenceDefaultStream - Stream To Publish confluence
 	ConfluenceDefaultStream = "PUT-S3-confluence"
+	// ConfluenceAddHistoryCreatedByRole - should we add contributor for history->createdBy page version edit?
+	ConfluenceAddHistoryCreatedByRole = false
+	// ConfluenceAddHistoryLastUpdatedByRole - should we add contributor for history->lastUpdatedBy page version edit?
+	ConfluenceAddHistoryLastUpdatedByRole = false
 )
 
 var (
@@ -865,19 +869,23 @@ func (j *DSConfluence) EnrichItem(ctx *shared.Ctx, item map[string]interface{}) 
 		avatar, _ := iAvatar.(string)
 		rich["avatar"] = j.URL + avatar
 	}
-	iAvatar, ok = shared.Dig(page, []string{"history", "createdBy", "profilePicture", "path"}, false, true)
-	if ok {
-		avatar, _ := iAvatar.(string)
-		rich["created_by_avatar"] = j.URL + avatar
-	}
-	iAvatar, ok = shared.Dig(page, []string{"history", "lastUpdated", "by", "profilePicture", "path"}, false, true)
-	if ok {
-		avatar, _ := iAvatar.(string)
-		rich["updated_by_avatar"] = j.URL + avatar
-	}
 	rich["by_name"], rich["by_username"], rich["by_email"] = j.GetRoleIdentity(item)
-	rich["created_by_name"], rich["created_by_username"], rich["created_by_email"] = j.GetCreatedRoleIdentity(ctx, item)
-	rich["updated_by_name"], rich["updated_by_username"], rich["updated_by_email"] = j.GetLastUpdatedRoleIdentity(ctx, item)
+	if ConfluenceAddHistoryCreatedByRole {
+		iAvatar, ok = shared.Dig(page, []string{"history", "createdBy", "profilePicture", "path"}, false, true)
+		if ok {
+			avatar, _ := iAvatar.(string)
+			rich["created_by_avatar"] = j.URL + avatar
+		}
+		rich["created_by_name"], rich["created_by_username"], rich["created_by_email"] = j.GetCreatedRoleIdentity(ctx, item)
+	}
+	if ConfluenceAddHistoryLastUpdatedByRole {
+		iAvatar, ok = shared.Dig(page, []string{"history", "lastUpdated", "by", "profilePicture", "path"}, false, true)
+		if ok {
+			avatar, _ := iAvatar.(string)
+			rich["updated_by_avatar"] = j.URL + avatar
+		}
+		rich["updated_by_name"], rich["updated_by_username"], rich["updated_by_email"] = j.GetLastUpdatedRoleIdentity(ctx, item)
+	}
 	// From shared
 	rich["metadata__enriched_on"] = time.Now()
 	// rich[ProjectSlug] = ctx.ProjectSlug
@@ -1175,59 +1183,63 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 				},
 			},
 		}
-		name, _ = doc["created_by_name"].(string)
-		username, _ = doc["created_by_username"].(string)
-		email, _ = doc["created_by_email"].(string)
-		if name != "" || username != "" || email != "" {
-			avatar, _ = doc["created_by_avatar"].(string)
-			// No identity data postprocessing in V2
-			// name, username = shared.PostprocessNameUsername(name, username, email)
-			userID, err = user.GenerateIdentity(&source, &email, &name, &username)
-			if err != nil {
-				shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
-				return
+		if ConfluenceAddHistoryCreatedByRole {
+			name, _ = doc["created_by_name"].(string)
+			username, _ = doc["created_by_username"].(string)
+			email, _ = doc["created_by_email"].(string)
+			if name != "" || username != "" || email != "" {
+				avatar, _ = doc["created_by_avatar"].(string)
+				// No identity data postprocessing in V2
+				// name, username = shared.PostprocessNameUsername(name, username, email)
+				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+				if err != nil {
+					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+					return
+				}
+				contributor := insights.Contributor{
+					Role:   insights.AuthorRole,
+					Weight: 1.0,
+					Identity: user.UserIdentityObjectBase{
+						ID:         userID,
+						Email:      email,
+						IsVerified: false,
+						Name:       name,
+						Username:   username,
+						Source:     ConfluenceDataSource,
+						Avatar:     avatar,
+					},
+				}
+				contributors = append(contributors, contributor)
 			}
-			contributor := insights.Contributor{
-				Role:   insights.AuthorRole,
-				Weight: 1.0,
-				Identity: user.UserIdentityObjectBase{
-					ID:         userID,
-					Email:      email,
-					IsVerified: false,
-					Name:       name,
-					Username:   username,
-					Source:     ConfluenceDataSource,
-					Avatar:     avatar,
-				},
-			}
-			contributors = append(contributors, contributor)
 		}
-		name, _ = doc["updated_by_name"].(string)
-		username, _ = doc["updated_by_username"].(string)
-		email, _ = doc["updated_by_email"].(string)
-		if name != "" || username != "" || email != "" {
-			avatar, _ = doc["updated_by_avatar"].(string)
-			// No identity data postprocessing in V2
-			// name, username = shared.PostprocessNameUsername(name, username, email)
-			userID, err = user.GenerateIdentity(&source, &email, &name, &username)
-			if err != nil {
-				shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
-				return
+		if ConfluenceAddHistoryLastUpdatedByRole {
+			name, _ = doc["updated_by_name"].(string)
+			username, _ = doc["updated_by_username"].(string)
+			email, _ = doc["updated_by_email"].(string)
+			if name != "" || username != "" || email != "" {
+				avatar, _ = doc["updated_by_avatar"].(string)
+				// No identity data postprocessing in V2
+				// name, username = shared.PostprocessNameUsername(name, username, email)
+				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
+				if err != nil {
+					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+					return
+				}
+				contributor := insights.Contributor{
+					Role:   insights.AuthorRole,
+					Weight: 1.0,
+					Identity: user.UserIdentityObjectBase{
+						ID:         userID,
+						Email:      email,
+						IsVerified: false,
+						Name:       name,
+						Username:   username,
+						Source:     ConfluenceDataSource,
+						Avatar:     avatar,
+					},
+				}
+				contributors = append(contributors, contributor)
 			}
-			contributor := insights.Contributor{
-				Role:   insights.AuthorRole,
-				Weight: 1.0,
-				Identity: user.UserIdentityObjectBase{
-					ID:         userID,
-					Email:      email,
-					IsVerified: false,
-					Name:       name,
-					Username:   username,
-					Source:     ConfluenceDataSource,
-					Avatar:     avatar,
-				},
-			}
-			contributors = append(contributors, contributor)
 		}
 		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, nonEmptySpaceID, string(contentType), entityID)
 		if err != nil {
