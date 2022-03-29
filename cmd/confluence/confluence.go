@@ -1241,9 +1241,11 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 				contributors = append(contributors, contributor)
 			}
 		}
-		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, nonEmptySpaceID, string(contentType), entityID)
+		sVersion := fmt.Sprintf("%.0f", version)
+		entityIDWithVersion := entityID + "-" + sVersion
+		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, nonEmptySpaceID, string(contentType), entityIDWithVersion)
 		if err != nil {
-			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, contentType, entityID, err, doc)
+			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, contentType, entityIDWithVersion, err, doc)
 			return
 		}
 		confluenceSpaceID, err = insightsConf.GenerateConfluenceSpaceID(j.URL, nonEmptySpaceID)
@@ -1266,7 +1268,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			ServerURL:       j.URL,
 			ContentID:       entityID,
 			ContentURL:      url,
-			Version:         fmt.Sprintf("%.0f", version),
+			Version:         sVersion,
 			Type:            contentType,
 			Title:           title,
 			Body:            sBody,
