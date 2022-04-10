@@ -1319,17 +1319,16 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			if err == nil {
 				if j.Publisher != nil {
 					insightsStr := "insights"
-					contentsStr := "contents"
 					envStr := os.Getenv("STAGE")
 					// Push the event
 					for k, v := range data {
 						switch k {
 						case "created":
 							ev, _ := v[0].(insightsConf.ContentCreatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, "", envStr, v)
 						case "updated":
 							ev, _ := v[0].(insightsConf.ContentUpdatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
+							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, "", envStr, v)
 						default:
 							err = fmt.Errorf("unknown confluence event type '%s'", k)
 						}
