@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/LF-Engineering/insights-connector-confluence/build"
 	"github.com/LF-Engineering/insights-datasource-shared/aws"
+	"github.com/LF-Engineering/insights-datasource-shared/cache"
 	"github.com/sirupsen/logrus"
 	"os"
 	"strconv"
@@ -78,9 +79,11 @@ type DSConfluence struct {
 	FlagStream      *string
 	// Publisher & stream
 	Publisher
-	Stream string // stream to publish the data
-	Logger logger.Logger
-	log    *logrus.Entry
+	Stream        string // stream to publish the data
+	Logger        logger.Logger
+	log           *logrus.Entry
+	cacheProvider cache.Manager
+	endpoint      string
 }
 
 // AddPublisher - sets Kinesis publisher
@@ -555,7 +558,12 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching from %v", j.URL, ctx.DateFrom)
 	}
 	if ctx.DateFrom == nil {
-		ctx.DateFrom = shared.GetLastUpdate(ctx, j.URL)
+		cachedLastSync, er := j.cacheProvider.GetLastSync(j.endpoint)
+		if er != nil {
+			err = er
+			return
+		}
+		ctx.DateFrom = &cachedLastSync
 		if ctx.DateFrom != nil {
 			j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s resuming from %v", j.URL, ctx.DateFrom)
 		}
@@ -755,7 +763,10 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	// NOTE: Non-generic ends here
 	gMaxUpdatedAtMtx.Lock()
 	defer gMaxUpdatedAtMtx.Unlock()
-	shared.SetLastUpdate(ctx, j.URL, gMaxUpdatedAt)
+	err = j.cacheProvider.SetLastSync(j.endpoint, gMaxUpdatedAt)
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("unable to set last sync date to cache.error: %v", err)
+	}
 	return
 }
 
@@ -1362,7 +1373,10 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 			*docs = []interface{}{}
 			gMaxUpdatedAtMtx.Lock()
 			defer gMaxUpdatedAtMtx.Unlock()
-			shared.SetLastUpdate(ctx, j.URL, gMaxUpdatedAt)
+			err = j.cacheProvider.SetLastSync(j.endpoint, gMaxUpdatedAt)
+			if err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Infof("unable to set last sync date to cache.error: %v", err)
+			}
 		}
 	}
 	if final {
@@ -1472,6 +1486,7 @@ func main() {
 	shared.SetSyncMode(true, false)
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&confluence.Logger, ConfluenceDataSource, logger.Internal, []map[string]string{{"CONFLUENCE_URL": confluence.URL, "ProjectSlug": ctx.Project}})
+	confluence.AddCacheProvider()
 	err = confluence.WriteLog(&ctx, logger.InProgress, content)
 	if err != nil {
 		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
@@ -1502,4 +1517,11 @@ func (j *DSConfluence) createStructuredLogger() {
 			"endpoint":    j.URL,
 		})
 	j.log = log
+}
+
+// AddCacheProvider - adds cache provider
+func (j *DSConfluence) AddCacheProvider() {
+	cacheProvider := cache.NewManager(ConfluenceDataSource, os.Getenv("STAGE"))
+	j.cacheProvider = *cacheProvider
+	j.endpoint = strings.ReplaceAll(strings.TrimPrefix(strings.TrimPrefix(j.URL, "https://"), "http://"), "/", "-")
 }
