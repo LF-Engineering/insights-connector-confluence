@@ -120,6 +120,7 @@ func (j *DSConfluence) AddLogger(ctx *shared.Ctx) {
 
 // WriteLog - writes to log
 func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) error {
+	return nil
 	arn, err := aws.GetContainerARN()
 	if err != nil {
 		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
@@ -341,8 +342,8 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 			headers,
 			nil,
 			nil,
-			map[[2]int]struct{}{{200, 200}: {}}, // JSON statuses: 200
-			nil,                                 // Error statuses
+			map[[2]int]struct{}{{200, 200}: {}},                                 // JSON statuses: 200
+			nil,                                                                 // Error statuses
 			map[[2]int]struct{}{{200, 200}: {}, {500, 500}: {}, {404, 404}: {}}, // OK statuses: 200
 			map[[2]int]struct{}{{200, 200}: {}},                                 // Cache statuses: 200
 			false,                                                               // retry
@@ -1130,7 +1131,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 	var updatedOn time.Time
 	source := ConfluenceDataSource
 	for _, iDoc := range docs {
-		var createdAt time.Time
 		doc, _ := iDoc.(map[string]interface{})
 		entityID, _ := doc["id"].(string)
 		kids := []string{}
@@ -1147,18 +1147,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		iUpdatedOn := doc["updated_on"]
 		updatedOn, err = shared.TimeParseInterfaceString(iUpdatedOn)
 		shared.FatalOnError(err)
-		if activityType == "confluence_new_page" {
-			createdAt = updatedOn
-		} else {
-			var ok bool
-			createdAt, ok = createDates[entityID]
-			if !ok {
-				if ctx.Debug > 0 {
-					j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Warningf("cannot find creation date for page %s version=%v", entityID, version)
-				}
-				createdAt = updatedOn
-			}
-		}
 		sBody := ""
 		if !j.SkipBody {
 			sBody, _ = doc["body"].(string)
@@ -1299,12 +1287,14 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			SourceTimestamp: updatedOn,
 			Children:        kids,
 		}
-		isNew := false
-		if !updatedOn.After(createdAt) {
-			isNew = true
+		cacheID := fmt.Sprintf("content-%s", confluenceContentID)
+		isCreated, err := j.cacheProvider.IsKeyCreated(j.endpoint, cacheID)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error getting cache for endpoint %s. error: %+v", j.endpoint, err)
+			return data, err
 		}
 		key := "updated"
-		if isNew {
+		if !isCreated {
 			key = "created"
 		}
 		ary, ok := data[key]
@@ -1344,11 +1334,19 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 					contentsStr := "contents"
 					envStr := os.Getenv("STAGE")
 					// Push the event
+					d := make([]map[string]interface{}, 0)
 					for k, v := range data {
 						switch k {
 						case "created":
 							ev, _ := v[0].(insightsConf.ContentCreatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
+							for _, val := range v {
+								id := fmt.Sprintf("%s-%s", "content", val.(insightsConf.ContentCreatedEvent).Payload.ID)
+								d = append(d, map[string]interface{}{
+									"id":   id,
+									"data": "",
+								})
+							}
 						case "updated":
 							ev, _ := v[0].(insightsConf.ContentUpdatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
@@ -1358,6 +1356,10 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 						if err != nil {
 							break
 						}
+					}
+					err = j.cacheProvider.Create(j.endpoint, d)
+					if err != nil {
+						j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("error creating cache for endpoint %s. Error: %+v", j.endpoint, err)
 					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(data)
