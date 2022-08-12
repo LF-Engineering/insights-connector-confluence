@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/LF-Engineering/insights-connector-confluence/build"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
 	"github.com/sirupsen/logrus"
 	"os"
 	"strconv"
@@ -115,9 +116,15 @@ func (j *DSConfluence) AddLogger(ctx *shared.Ctx) {
 }
 
 // WriteLog - writes to log
-func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) {
-	_ = j.Logger.Write(&logger.Log{
+func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) error {
+	arn, err := aws.GetContainerARN()
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
+		return err
+	}
+	err = j.Logger.Write(&logger.Log{
 		Connector: ConfluenceDataSource,
+		TaskARN:   arn,
 		Configuration: []map[string]string{
 			{
 				"CONFLUENCE_URL": j.URL,
@@ -128,6 +135,7 @@ func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) {
 		UpdatedAt: time.Now(),
 		Message:   message,
 	})
+	return err
 }
 
 // AddFlags - add confluence specific flags
@@ -1464,14 +1472,22 @@ func main() {
 	shared.SetSyncMode(true, false)
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&confluence.Logger, ConfluenceDataSource, logger.Internal, []map[string]string{{"CONFLUENCE_URL": confluence.URL, "ProjectSlug": ctx.Project}})
-	confluence.WriteLog(&ctx, logger.InProgress, content)
+	err = confluence.WriteLog(&ctx, logger.InProgress, content)
+	if err != nil {
+		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
+		return
+	}
+
 	err = confluence.Sync(&ctx)
 	if err != nil {
 		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("error sync confluence: %+v", err)
-		confluence.WriteLog(&ctx, logger.Failed, content+": "+err.Error())
+		er := confluence.WriteLog(&ctx, logger.Failed, content+": "+err.Error())
+		if er != nil {
+			err = er
+		}
 		return
 	}
-	confluence.WriteLog(&ctx, logger.Done, content)
+	err = confluence.WriteLog(&ctx, logger.Done, content)
 }
 
 // createStructuredLogger...
