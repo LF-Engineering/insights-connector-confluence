@@ -342,8 +342,8 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 			headers,
 			nil,
 			nil,
-			map[[2]int]struct{}{{200, 200}: {}},                                 // JSON statuses: 200
-			nil,                                                                 // Error statuses
+			map[[2]int]struct{}{{200, 200}: {}}, // JSON statuses: 200
+			nil,                                 // Error statuses
 			map[[2]int]struct{}{{200, 200}: {}, {500, 500}: {}, {404, 404}: {}}, // OK statuses: 200
 			map[[2]int]struct{}{{200, 200}: {}},                                 // Cache statuses: 200
 			false,                                                               // retry
@@ -1492,8 +1492,8 @@ func main() {
 	err = confluence.WriteLog(&ctx, logger.InProgress, content)
 	if err != nil {
 		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
-		return
 	}
+	shared.FatalOnError(err)
 
 	err = confluence.Sync(&ctx)
 	if err != nil {
@@ -1502,9 +1502,13 @@ func main() {
 		if er != nil {
 			err = er
 		}
-		return
 	}
+	shared.FatalOnError(err)
 	err = confluence.WriteLog(&ctx, logger.Done, content)
+	if err != nil {
+		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
+	}
+	shared.FatalOnError(err)
 }
 
 // createStructuredLogger...
