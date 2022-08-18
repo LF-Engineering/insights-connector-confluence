@@ -1479,6 +1479,7 @@ func main() {
 		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("error init confluence: %+v", err)
 		return
 	}
+	confluence.log = confluence.log.WithFields(logrus.Fields{"endpoint": confluence.URL})
 	// To enable debug mode: start
 	// ctx.Debug = 2
 	// shared.SetSyncMode(true, true)
