@@ -98,7 +98,7 @@ workflows:
             - build
           filters:
             branches:
-              only: DA-5001 #main
+              only: main
             tags:
               ignore: /.*/
       - approve_test:

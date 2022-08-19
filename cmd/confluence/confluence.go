@@ -4,10 +4,6 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-	"github.com/LF-Engineering/insights-connector-confluence/build"
-	"github.com/LF-Engineering/insights-datasource-shared/aws"
-	"github.com/LF-Engineering/insights-datasource-shared/cache"
-	"github.com/sirupsen/logrus"
 	"os"
 	"strconv"
 	"strings"
@@ -16,20 +12,22 @@ import (
 
 	neturl "net/url"
 
+	"github.com/LF-Engineering/insights-connector-confluence/build"
+	shared "github.com/LF-Engineering/insights-datasource-shared"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
+	"github.com/LF-Engineering/insights-datasource-shared/cache"
+	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
+	insightsConf "github.com/LF-Engineering/lfx-event-schema/service/insights/confluence"
 	"github.com/LF-Engineering/lfx-event-schema/service/user"
 	"github.com/LF-Engineering/lfx-event-schema/utils/datalake"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-
-	insightsConf "github.com/LF-Engineering/lfx-event-schema/service/insights/confluence"
-
-	shared "github.com/LF-Engineering/insights-datasource-shared"
-	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -120,7 +118,6 @@ func (j *DSConfluence) AddLogger(ctx *shared.Ctx) {
 
 // WriteLog - writes to log
 func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) error {
-	return nil
 	arn, err := aws.GetContainerARN()
 	if err != nil {
 		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
