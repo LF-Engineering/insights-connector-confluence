@@ -12,20 +12,22 @@ import (
 
 	neturl "net/url"
 
+	"github.com/LF-Engineering/insights-connector-confluence/build"
+	shared "github.com/LF-Engineering/insights-datasource-shared"
+	"github.com/LF-Engineering/insights-datasource-shared/aws"
+	"github.com/LF-Engineering/insights-datasource-shared/cache"
+	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	elastic "github.com/LF-Engineering/insights-datasource-shared/elastic"
 	logger "github.com/LF-Engineering/insights-datasource-shared/ingestjob"
 	"github.com/LF-Engineering/lfx-event-schema/service"
 	"github.com/LF-Engineering/lfx-event-schema/service/insights"
+	insightsConf "github.com/LF-Engineering/lfx-event-schema/service/insights/confluence"
 	"github.com/LF-Engineering/lfx-event-schema/service/user"
 	"github.com/LF-Engineering/lfx-event-schema/utils/datalake"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-
-	insightsConf "github.com/LF-Engineering/lfx-event-schema/service/insights/confluence"
-
-	shared "github.com/LF-Engineering/insights-datasource-shared"
-	"github.com/LF-Engineering/insights-datasource-shared/cryptography"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -75,8 +77,11 @@ type DSConfluence struct {
 	FlagStream      *string
 	// Publisher & stream
 	Publisher
-	Stream string // stream to publish the data
-	Logger logger.Logger
+	Stream        string // stream to publish the data
+	Logger        logger.Logger
+	log           *logrus.Entry
+	cacheProvider cache.Manager
+	endpoint      string
 }
 
 // AddPublisher - sets Kinesis publisher
@@ -88,7 +93,7 @@ func (j *DSConfluence) AddPublisher(publisher Publisher) {
 // FIXME: don't use when done implementing
 func (j *DSConfluence) PublisherPushEvents(ev, ori, src, cat, env string, v []interface{}) error {
 	data, err := jsoniter.Marshal(v)
-	shared.Printf("publish[ev=%s ori=%s src=%s cat=%s env=%s]: %d items: %+v -> %v\n", ev, ori, src, cat, env, len(v), string(data), err)
+	j.log.WithFields(logrus.Fields{"operation": "AddLogger"}).Infof("publish[ev=%s ori=%s src=%s cat=%s env=%s]: %d items: %+v -> %v", ev, ori, src, cat, env, len(v), string(data), err)
 	return nil
 }
 
@@ -100,21 +105,27 @@ func (j *DSConfluence) AddLogger(ctx *shared.Ctx) {
 		Username: os.Getenv("ELASTIC_LOG_USER"),
 	})
 	if err != nil {
-		shared.Printf("AddLogger error: %+v", err)
+		j.log.WithFields(logrus.Fields{"operation": "AddLogger"}).Errorf("elastic NewClientProvider error: %+v", err)
 		return
 	}
 	logProvider, err := logger.NewLogger(client, os.Getenv("STAGE"))
 	if err != nil {
-		shared.Printf("AddLogger error: %+v", err)
+		j.log.WithFields(logrus.Fields{"operation": "AddLogger"}).Errorf("logger NewLogger error: %+v", err)
 		return
 	}
 	j.Logger = *logProvider
 }
 
 // WriteLog - writes to log
-func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) {
-	_ = j.Logger.Write(&logger.Log{
+func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) error {
+	arn, err := aws.GetContainerARN()
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "WriteLog"}).Errorf("getContainerMetadata Error : %+v", err)
+		return err
+	}
+	err = j.Logger.Write(&logger.Log{
 		Connector: ConfluenceDataSource,
+		TaskARN:   arn,
 		Configuration: []map[string]string{
 			{
 				"CONFLUENCE_URL": j.URL,
@@ -125,6 +136,7 @@ func (j *DSConfluence) WriteLog(ctx *shared.Ctx, status, message string) {
 		UpdatedAt: time.Now(),
 		Message:   message,
 	})
+	return err
 }
 
 // AddFlags - add confluence specific flags
@@ -255,7 +267,7 @@ func (j *DSConfluence) Init(ctx *shared.Ctx) (err error) {
 		return
 	}
 	if ctx.Debug > 1 {
-		shared.Printf("confluence: %+v\nshared context: %s\n", j, ctx.Info())
+		j.log.WithFields(logrus.Fields{"operation": "Init"}).Debugf("confluence: %+v\nshared context: %s", j, ctx.Info())
 	}
 
 	if j.Stream != "" {
@@ -318,7 +330,7 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 			url = j.URL + "/rest/api/content/" + id + "?version=" + strconv.Itoa(version) + "&status=historical&expand=" + neturl.QueryEscape("body.storage,history,history.lastUpdated,version,space")
 		}
 		if ctx.Debug > 1 {
-			shared.Printf("historical content url: %s\n", url)
+			j.log.WithFields(logrus.Fields{"operation": "GetHistoricalContents"}).Debugf("historical content url: %s", url)
 		}
 		res, status, _, _, err = shared.Request(
 			ctx,
@@ -337,7 +349,7 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 		)
 		if status == 404 || status == 500 {
 			if ctx.Debug > 1 {
-				shared.Printf("%s: v%d status %d: %s\n", id, version, status, url)
+				j.log.WithFields(logrus.Fields{"operation": "GetHistoricalContents"}).Debugf("%s: v%d status %d: %s", id, version, status, url)
 			}
 			break
 		}
@@ -358,7 +370,7 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 		iWhen, ok := shared.Dig(result, []string{"version", "when"}, false, true)
 		if !ok {
 			if ctx.Debug > 0 {
-				shared.Printf("missing 'when' attribute for content %s version %d, skipping\n", id, version)
+				j.log.WithFields(logrus.Fields{"operation": "GetHistoricalContents"}).Debugf("missing 'when' attribute for content %s version %d, skipping", id, version)
 			}
 			if latest {
 				break
@@ -377,7 +389,7 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 			contents = append(contents, result)
 		}
 		if ctx.Debug > 2 {
-			shared.Printf("%s: v%d %+v,%v (%s)\n", id, version, when, latest, url)
+			j.log.WithFields(logrus.Fields{"operation": "GetHistoricalContents"}).Debugf("%s: v%d %+v,%v (%s)", id, version, when, latest, url)
 		}
 		if latest {
 			break
@@ -389,7 +401,7 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 	}
 	contents = append(contents, content)
 	if ctx.Debug > 1 {
-		shared.Printf("final %s %d (%d historical contents)\n", id, version, len(contents))
+		j.log.WithFields(logrus.Fields{"operation": "GetHistoricalContents"}).Debugf("final %s %d (%d historical contents)", id, version, len(contents))
 	}
 	return
 }
@@ -424,7 +436,7 @@ func (j *DSConfluence) GetConfluenceContents(ctx *shared.Ctx, fromDate, toDate, 
 		url = j.URL + next
 	}
 	if ctx.Debug > 1 {
-		shared.Printf("content url: %s\n", url)
+		j.log.WithFields(logrus.Fields{"operation": "GetConfluenceContents"}).Debugf("content url: %s", url)
 	}
 	res, status, _, _, err := shared.Request(
 		ctx,
@@ -541,16 +553,21 @@ func (j *DSConfluence) AddMetadata(ctx *shared.Ctx, item interface{}) (mItem map
 func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	thrN := shared.GetThreadsNum(ctx)
 	if ctx.DateFrom != nil {
-		shared.Printf("%s fetching from %v\n", j.URL, ctx.DateFrom)
+		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching from %v", j.URL, ctx.DateFrom)
 	}
 	if ctx.DateFrom == nil {
-		ctx.DateFrom = shared.GetLastUpdate(ctx, j.URL)
+		cachedLastSync, er := j.cacheProvider.GetLastSync(j.endpoint)
+		if er != nil {
+			err = er
+			return
+		}
+		ctx.DateFrom = &cachedLastSync
 		if ctx.DateFrom != nil {
-			shared.Printf("%s resuming from %v\n", j.URL, ctx.DateFrom)
+			j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s resuming from %v", j.URL, ctx.DateFrom)
 		}
 	}
 	if ctx.DateTo != nil {
-		shared.Printf("%s fetching till %v\n", j.URL, ctx.DateTo)
+		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching till %v", j.URL, ctx.DateTo)
 	}
 	// NOTE: Non-generic starts here
 	var (
@@ -624,7 +641,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 				}()
 				ee = j.ConfluenceEnrichItems(ctx, thrN, allContents, &allDocs, false)
 				if ee != nil {
-					shared.Printf("error %v sending %d historical contents to queue\n", ee, len(allContents))
+					j.log.WithFields(logrus.Fields{"operation": "Sync"}).Errorf("error %v sending %d historical contents to queue", ee, len(allContents))
 				}
 				allContents = []interface{}{}
 				if allContentsMtx != nil {
@@ -665,7 +682,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 					)
 					esch, e = processContent(ch, content)
 					if e != nil {
-						shared.Printf("process error: %v\n", e)
+						j.log.WithFields(logrus.Fields{"operation": "Sync"}).Errorf("process error: %v", e)
 						return
 					}
 					if esch != nil {
@@ -734,17 +751,20 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	}
 	nContents := len(allContents)
 	if ctx.Debug > 0 {
-		shared.Printf("%d remaining contents to send to queue\n", nContents)
+		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Debugf("%d remaining contents to send to queue", nContents)
 	}
 	// NOTE: for all items, even if 0 - to flush the queue
 	err = j.ConfluenceEnrichItems(ctx, thrN, allContents, &allDocs, true)
 	if err != nil {
-		shared.Printf("Error %v sending %d contents to queue\n", err, len(allContents))
+		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Errorf("Error %v sending %d contents to queue", err, len(allContents))
 	}
 	// NOTE: Non-generic ends here
 	gMaxUpdatedAtMtx.Lock()
 	defer gMaxUpdatedAtMtx.Unlock()
-	shared.SetLastUpdate(ctx, j.URL, gMaxUpdatedAt)
+	err = j.cacheProvider.SetLastSync(j.endpoint, gMaxUpdatedAt)
+	if err != nil {
+		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("unable to set last sync date to cache.error: %v", err)
+	}
 	return
 }
 
@@ -922,7 +942,7 @@ func (j *DSConfluence) GetCreatedRoleIdentity(ctx *shared.Ctx, item map[string]i
 	iUser, ok := shared.Dig(item, []string{"data", "history", "createdBy"}, false, true)
 	if !ok {
 		if ctx.Debug > 0 {
-			fmt.Printf("GetCreatedRoleIdentity -> no history->createdBy in %s\n", shared.PrettyPrint(item))
+			j.log.WithFields(logrus.Fields{"operation": "GetCreatedRoleIdentity"}).Debugf("GetCreatedRoleIdentity -> no history->createdBy in %s", shared.PrettyPrint(item))
 		}
 		return
 	}
@@ -952,7 +972,7 @@ func (j *DSConfluence) GetLastUpdatedRoleIdentity(ctx *shared.Ctx, item map[stri
 	iUser, ok := shared.Dig(item, []string{"data", "history", "lastUpdated", "by"}, false, true)
 	if !ok {
 		if ctx.Debug > 0 {
-			fmt.Printf("GetLastUpdatedRoleIdentity -> no history->lastUpdated->by in %s\n", shared.PrettyPrint(item))
+			j.log.WithFields(logrus.Fields{"operation": "GetLastUpdatedRoleIdentity"}).Debugf("GetLastUpdatedRoleIdentity -> no history->lastUpdated->by in %s", shared.PrettyPrint(item))
 		}
 		return
 	}
@@ -995,7 +1015,7 @@ func (j *DSConfluence) mapActivityType(actType string) insightsConf.ContentType 
 	case "confluence_comment":
 		return insightsConf.CommentType
 	default:
-		shared.Printf("warning: unknown activity type: '%s'\n", actType)
+		j.log.WithFields(logrus.Fields{"operation": "mapActivityType"}).Warningf("warning: unknown activity type: '%s'", actType)
 	}
 	return insightsConf.ContentType(actType)
 }
@@ -1108,7 +1128,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 	var updatedOn time.Time
 	source := ConfluenceDataSource
 	for _, iDoc := range docs {
-		var createdAt time.Time
 		doc, _ := iDoc.(map[string]interface{})
 		entityID, _ := doc["id"].(string)
 		kids := []string{}
@@ -1125,18 +1144,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		iUpdatedOn := doc["updated_on"]
 		updatedOn, err = shared.TimeParseInterfaceString(iUpdatedOn)
 		shared.FatalOnError(err)
-		if activityType == "confluence_new_page" {
-			createdAt = updatedOn
-		} else {
-			var ok bool
-			createdAt, ok = createDates[entityID]
-			if !ok {
-				if ctx.Debug > 0 {
-					shared.Printf("WARNING: cannot find creation date for page %s version=%s\n", entityID, version)
-				}
-				createdAt = updatedOn
-			}
-		}
 		sBody := ""
 		if !j.SkipBody {
 			sBody, _ = doc["body"].(string)
@@ -1165,7 +1172,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		// name, username = shared.PostprocessNameUsername(name, username, email)
 		userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 		if err != nil {
-			shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 			return
 		}
 		contributors := []insights.Contributor{
@@ -1193,7 +1200,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 				// name, username = shared.PostprocessNameUsername(name, username, email)
 				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 				if err != nil {
-					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+					j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 					return
 				}
 				contributor := insights.Contributor{
@@ -1222,7 +1229,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 				// name, username = shared.PostprocessNameUsername(name, username, email)
 				userID, err = user.GenerateIdentity(&source, &email, &name, &username)
 				if err != nil {
-					shared.Printf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
+					j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 					return
 				}
 				contributor := insights.Contributor{
@@ -1245,12 +1252,12 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 		entityIDWithVersion := entityID + "-" + sVersion
 		confluenceContentID, err = insightsConf.GenerateConfluenceContentID(j.URL, nonEmptySpaceID, string(contentType), entityIDWithVersion)
 		if err != nil {
-			shared.Printf("GenerateConfluenceContentID(%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, contentType, entityIDWithVersion, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("GenerateConfluenceContentID(%s,%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, contentType, entityIDWithVersion, err, doc)
 			return
 		}
 		confluenceSpaceID, err = insightsConf.GenerateConfluenceSpaceID(j.URL, nonEmptySpaceID)
 		if err != nil {
-			shared.Printf("GenerateConfluenceSpaceID(%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, err, doc)
+			j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("GenerateConfluenceSpaceID(%s,%s,%s,%s): %+v for %+v", j.URL, nonEmptySpaceID, contentType, entityIDWithVersion, err, doc)
 			return
 		}
 		confSpace := insightsConf.Space{
@@ -1277,12 +1284,14 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			SourceTimestamp: updatedOn,
 			Children:        kids,
 		}
-		isNew := false
-		if !updatedOn.After(createdAt) {
-			isNew = true
+		cacheID := fmt.Sprintf("content-%s", confluenceContentID)
+		isCreated, err := j.cacheProvider.IsKeyCreated(j.endpoint, cacheID)
+		if err != nil {
+			j.log.WithFields(logrus.Fields{"operation": "GetModelDataPullRequest"}).Errorf("error getting cache for endpoint %s. error: %+v", j.endpoint, err)
+			return data, err
 		}
 		key := "updated"
-		if isNew {
+		if !isCreated {
 			key = "created"
 		}
 		ary, ok := data[key]
@@ -1305,7 +1314,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 // items is a current pack of input items
 // docs is a pointer to where extracted identities will be stored
 func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []interface{}, docs *[]interface{}, final bool) (err error) {
-	shared.Printf("input processing(%d/%d/%v)\n", len(items), len(*docs), final)
+	j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Infof("input processing(%d/%d/%v)", len(items), len(*docs), final)
 	outputDocs := func() {
 		if len(*docs) > 0 {
 			var (
@@ -1314,7 +1323,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 				err       error
 			)
 			// actual output
-			shared.Printf("output processing(%d/%d/%v)\n", len(items), len(*docs), final)
+			j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Infof("output processing(%d/%d/%v)", len(items), len(*docs), final)
 			data, err = j.GetModelData(ctx, *docs)
 			if err == nil {
 				if j.Publisher != nil {
@@ -1322,11 +1331,19 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 					contentsStr := "contents"
 					envStr := os.Getenv("STAGE")
 					// Push the event
+					d := make([]map[string]interface{}, 0)
 					for k, v := range data {
 						switch k {
 						case "created":
 							ev, _ := v[0].(insightsConf.ContentCreatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
+							for _, val := range v {
+								id := fmt.Sprintf("%s-%s", "content", val.(insightsConf.ContentCreatedEvent).Payload.ID)
+								d = append(d, map[string]interface{}{
+									"id":   id,
+									"data": "",
+								})
+							}
 						case "updated":
 							ev, _ := v[0].(insightsConf.ContentUpdatedEvent)
 							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
@@ -1337,21 +1354,28 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 							break
 						}
 					}
+					err = j.cacheProvider.Create(j.endpoint, d)
+					if err != nil {
+						j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("error creating cache for endpoint %s. Error: %+v", j.endpoint, err)
+					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(data)
 				}
 			}
 			if err != nil {
-				shared.Printf("Error: %+v\n", err)
+				j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("Error: %+v", err)
 				return
 			}
 			if j.Publisher == nil {
-				shared.Printf("%s\n", string(jsonBytes))
+				j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Infof("%s", string(jsonBytes))
 			}
 			*docs = []interface{}{}
 			gMaxUpdatedAtMtx.Lock()
 			defer gMaxUpdatedAtMtx.Unlock()
-			shared.SetLastUpdate(ctx, j.URL, gMaxUpdatedAt)
+			err = j.cacheProvider.SetLastSync(j.endpoint, gMaxUpdatedAt)
+			if err != nil {
+				j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Infof("unable to set last sync date to cache.error: %v", err)
+			}
 		}
 	}
 	if final {
@@ -1361,7 +1385,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 	}
 	// NOTE: non-generic code starts
 	if ctx.Debug > 0 {
-		shared.Printf("confluence enrich items %d\n", len(items))
+		j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Debugf("confluence enrich items %d", len(items))
 	}
 	var (
 		mtx *sync.RWMutex
@@ -1446,11 +1470,13 @@ func main() {
 		ctx        shared.Ctx
 		confluence DSConfluence
 	)
+	confluence.createStructuredLogger()
 	err := confluence.Init(&ctx)
 	if err != nil {
-		shared.Printf("Error: %+v\n", err)
+		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("error init confluence: %+v", err)
 		return
 	}
+	confluence.log = confluence.log.WithFields(logrus.Fields{"endpoint": confluence.URL})
 	// To enable debug mode: start
 	// ctx.Debug = 2
 	// shared.SetSyncMode(true, true)
@@ -1460,12 +1486,46 @@ func main() {
 	shared.SetSyncMode(true, false)
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&confluence.Logger, ConfluenceDataSource, logger.Internal, []map[string]string{{"CONFLUENCE_URL": confluence.URL, "ProjectSlug": ctx.Project}})
-	confluence.WriteLog(&ctx, logger.InProgress, content)
+	confluence.AddCacheProvider()
+	err = confluence.WriteLog(&ctx, logger.InProgress, content)
+	if err != nil {
+		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
+	}
+	shared.FatalOnError(err)
+
 	err = confluence.Sync(&ctx)
 	if err != nil {
-		shared.Printf("Error: %+v\n", err)
-		confluence.WriteLog(&ctx, logger.Failed, content+": "+err.Error())
-		return
+		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("error sync confluence: %+v", err)
+		er := confluence.WriteLog(&ctx, logger.Failed, content+": "+err.Error())
+		if er != nil {
+			err = er
+		}
 	}
-	confluence.WriteLog(&ctx, logger.Done, content)
+	shared.FatalOnError(err)
+	err = confluence.WriteLog(&ctx, logger.Done, content)
+	if err != nil {
+		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
+	}
+	shared.FatalOnError(err)
+}
+
+// createStructuredLogger...
+func (j *DSConfluence) createStructuredLogger() {
+	logrus.SetFormatter(&logrus.JSONFormatter{})
+	log := logrus.WithFields(
+		logrus.Fields{
+			"environment": os.Getenv("STAGE"),
+			"commit":      build.GitCommit,
+			"version":     build.Version,
+			"service":     build.AppName,
+			"endpoint":    j.URL,
+		})
+	j.log = log
+}
+
+// AddCacheProvider - adds cache provider
+func (j *DSConfluence) AddCacheProvider() {
+	cacheProvider := cache.NewManager(ConfluenceDataSource, os.Getenv("STAGE"))
+	j.cacheProvider = *cacheProvider
+	j.endpoint = strings.ReplaceAll(strings.TrimPrefix(strings.TrimPrefix(j.URL, "https://"), "http://"), "/", "-")
 }

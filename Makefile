@@ -10,9 +10,13 @@ GO_VET=go vet
 GO_IMPORTS=goimports -w
 GO_ERRCHECK=errcheck -asserts -ignore '[FS]?[Pp]rint*'
 BINARIES=confluence
+COMMIT=`git rev-parse --short HEAD`
+VERSION=`git describe --tags --always | cut -d- -f1`
+LDFLAGS=-ldflags "-s -w -extldflags '-static' -X github.com/LF-Engineering/insights-connector-confluence/build.GitCommit=$(COMMIT) \
+   -X github.com/LF-Engineering/insights-connector-confluence/build.Version=$(VERSION)"
 all: check ${BINARIES}
 confluence: ${GO_BIN_FILES}
-	 ${GO_ENV} ${GO_BUILD} -o confluence ${GO_BIN_FILES}
+	 ${GO_ENV} ${GO_BUILD} -o confluence ${LDFLAGS} ${GO_BIN_FILES}
 
 fmt: ${GO_BIN_FILES}
 	${GO_FMT} ${GO_BIN_FILES}
