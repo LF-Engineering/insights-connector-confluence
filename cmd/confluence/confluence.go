@@ -49,6 +49,7 @@ const (
 	ConfluenceAddHistoryCreatedByRole = false
 	// ConfluenceAddHistoryLastUpdatedByRole - should we add contributor for history->lastUpdatedBy page version edit?
 	ConfluenceAddHistoryLastUpdatedByRole = false
+	contentHashField                      = "contentHash"
 )
 
 var (
@@ -1351,7 +1352,9 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 								j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("preventUpdateDuplication error: %+v", err)
 								return
 							}
-							d = append(d, cacheData...)
+							if len(cacheData) > 0 {
+								d = append(d, cacheData...)
+							}
 							if len(updates) > 0 {
 								ev, _ := updates[0].(insightsConf.ContentUpdatedEvent)
 								err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, updates)
@@ -1565,8 +1568,10 @@ func (j *DSConfluence) cachedCreatedContent(v []interface{}) ([]map[string]inter
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
 		cacheData = append(cacheData, map[string]interface{}{
-			"id":   id,
-			"data": contentHash,
+			"id": id,
+			"data": map[string]interface{}{
+				contentHashField: contentHash,
+			},
 		})
 	}
 	return cacheData, nil
@@ -1600,13 +1605,15 @@ func (j *DSConfluence) preventUpdateDuplication(v []interface{}) ([]interface{},
 		if err != nil {
 			return updatedVals, cacheData, nil
 		}
-		cachedHash := ""
+		cachedHash := make(map[string]interface{})
 		err = json.Unmarshal(byt, &cachedHash)
-		if contentHash != cachedHash {
+		if contentHash != cachedHash["contentHash"] {
 			updatedVals = append(updatedVals, val)
 			cacheData = append(cacheData, map[string]interface{}{
-				"id":   cacheID,
-				"data": contentHash,
+				"id": cacheID,
+				"data": map[string]interface{}{
+					contentHashField: contentHash,
+				},
 			})
 		}
 	}
