@@ -98,7 +98,7 @@ workflows:
             - build
           filters:
             branches:
-              only: remove-duplicated-events #main
+              only: main
             tags:
               ignore: /.*/
       - approve_test:
