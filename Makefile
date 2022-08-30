@@ -34,6 +34,7 @@ imports: ${GO_BIN_FILES}
 	${GO_IMPORTS} ${GO_BIN_FILES}
 
 errcheck: ${GO_BIN_FILES}
+	go install github.com/kisielk/errcheck@latest
 	${GO_ERRCHECK} ${GO_BIN_FILES}
 
 check: fmt lint imports vet errcheck
