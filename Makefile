@@ -29,6 +29,7 @@ vet: ${GO_BIN_FILES}
 	${GO_VET} ${GO_BIN_FILES}
 
 imports: ${GO_BIN_FILES}
+	go install golang.org/x/tools/cmd/goimports@latest
 	${GO_IMPORTS} ${GO_BIN_FILES}
 
 errcheck: ${GO_BIN_FILES}
