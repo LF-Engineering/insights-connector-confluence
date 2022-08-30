@@ -11,7 +11,7 @@ jobs:
           command: git config --global url."https://${GITHUB_TOKEN}:x-oauth-basic@github.com/LF-Engineering".insteadOf "https://github.com/LF-Engineering"
       - run:
           name: Build Executable
-          command: make confluence
+          command: make
       - setup_remote_docker
       - persist_to_workspace:
           root: ./
@@ -78,7 +78,10 @@ jobs:
 workflows:
   build-connector:
     jobs:
-      - build
+      - build:
+          filters:
+            tags:
+              only: /.*/
       - deploy_dev:
           context:
             - development
