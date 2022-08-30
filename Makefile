@@ -22,6 +22,7 @@ fmt: ${GO_BIN_FILES}
 	${GO_FMT} ${GO_BIN_FILES}
 
 lint: ${GO_BIN_FILES}
+	go get -u golang.org/x/lint/golint
 	${GO_LINT} ${GO_BIN_FILES}
 
 vet: ${GO_BIN_FILES}
