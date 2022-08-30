@@ -26,6 +26,7 @@ lint: ${GO_BIN_FILES}
 	${GO_LINT} ${GO_BIN_FILES}
 
 vet: ${GO_BIN_FILES}
+	go mod vendor
 	${GO_VET} ${GO_BIN_FILES}
 
 imports: ${GO_BIN_FILES}
