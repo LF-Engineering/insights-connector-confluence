@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -30,6 +31,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 const (
@@ -1509,6 +1511,25 @@ func main() {
 	shared.SetLogLoggerError(false)
 	shared.AddLogger(&confluence.Logger, ConfluenceDataSource, logger.Internal, []map[string]string{{"CONFLUENCE_URL": confluence.URL, "ProjectSlug": ctx.Project}})
 	confluence.AddCacheProvider()
+	if os.Getenv("SPAN") != "" {
+		tracer.Start(tracer.WithGlobalTag("connector", "confluence"))
+		defer tracer.Stop()
+
+		sb := os.Getenv("SPAN")
+		carrier := make(tracer.TextMapCarrier)
+		err = jsoniter.Unmarshal([]byte(sb), &carrier)
+		if err != nil {
+			return
+		}
+		sctx, er := tracer.Extract(carrier)
+		if er != nil {
+			fmt.Println(er)
+		}
+		if err == nil && sctx != nil {
+			span, _ := tracer.StartSpanFromContext(context.Background(), "wiki", tracer.ResourceName("connector"), tracer.ChildOf(sctx))
+			defer span.Finish()
+		}
+	}
 	err = confluence.WriteLog(&ctx, logger.InProgress, content)
 	if err != nil {
 		confluence.log.WithFields(logrus.Fields{"operation": "main"}).Errorf("WriteLog Error : %+v", err)
