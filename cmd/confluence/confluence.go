@@ -1182,7 +1182,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 			return
 		}
-		isBotIdentity := shared.IsBotIdentity(name, username, email, ConfluenceDataSource, os.Getenv("BOT_NAME_REGEX"), os.Getenv("BOT_USERNAME_REGEX"), os.Getenv("BOT_EMAIL_REGEX"))
 		contributors := []insights.Contributor{
 			{
 				Role:   insights.AuthorRole,
@@ -1195,7 +1194,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 					Username:   username,
 					Source:     ConfluenceDataSource,
 					Avatar:     avatar,
-					IsBot:      isBotIdentity,
 				},
 			},
 		}
@@ -1212,7 +1210,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 					j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 					return
 				}
-				isBotIdentity2 := shared.IsBotIdentity(name, username, email, ConfluenceDataSource, os.Getenv("BOT_NAME_REGEX"), os.Getenv("BOT_USERNAME_REGEX"), os.Getenv("BOT_EMAIL_REGEX"))
 				contributor := insights.Contributor{
 					Role:   insights.AuthorRole,
 					Weight: 1.0,
@@ -1224,7 +1221,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 						Username:   username,
 						Source:     ConfluenceDataSource,
 						Avatar:     avatar,
-						IsBot:      isBotIdentity2,
 					},
 				}
 				contributors = append(contributors, contributor)
@@ -1243,7 +1239,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 					j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("GenerateIdentity(%s,%s,%s,%s): %+v for %+v", source, email, name, username, err, doc)
 					return
 				}
-				isBotIdentity2 := shared.IsBotIdentity(name, username, email, ConfluenceDataSource, os.Getenv("BOT_NAME_REGEX"), os.Getenv("BOT_USERNAME_REGEX"), os.Getenv("BOT_EMAIL_REGEX"))
 				contributor := insights.Contributor{
 					Role:   insights.AuthorRole,
 					Weight: 1.0,
@@ -1255,7 +1250,6 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 						Username:   username,
 						Source:     ConfluenceDataSource,
 						Avatar:     avatar,
-						IsBot:      isBotIdentity2,
 					},
 				}
 				contributors = append(contributors, contributor)
