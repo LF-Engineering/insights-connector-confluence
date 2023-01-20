@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -57,6 +59,8 @@ const (
 var (
 	gMaxUpdatedAt    time.Time
 	gMaxUpdatedAtMtx = &sync.Mutex{}
+	cachedSpaces     = make(map[string]EntityCache)
+	spacesCacheFile  = "spaces-cache.csv"
 	// ConfluenceDataSource - constant
 	//ConfluenceDataSource = &models.DataSource{Name: "Confluence", Slug: "confluence", Model: "documentation"}
 	//gConfluenceMetaData = &models.MetaData{BackendName: "confluence", BackendVersion: ConfluenceBackendVersion}
@@ -64,7 +68,7 @@ var (
 
 // Publisher - publish data to S3
 type Publisher interface {
-	PushEvents(action, source, eventType, subEventType, env string, data []interface{}) error
+	PushEvents(action, source, eventType, subEventType, env string, data []interface{}) (string, error)
 }
 
 // DSConfluence - DS implementation for confluence - does nothing at all, just presents a skeleton code
@@ -344,8 +348,8 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 			headers,
 			nil,
 			nil,
-			map[[2]int]struct{}{{200, 200}: {}}, // JSON statuses: 200
-			nil,                                 // Error statuses
+			map[[2]int]struct{}{{200, 200}: {}},                                 // JSON statuses: 200
+			nil,                                                                 // Error statuses
 			map[[2]int]struct{}{{200, 200}: {}, {500, 500}: {}, {404, 404}: {}}, // OK statuses: 200
 			map[[2]int]struct{}{{200, 200}: {}},                                 // Cache statuses: 200
 			false,                                                               // retry
@@ -574,6 +578,7 @@ func (j *DSConfluence) Sync(ctx *shared.Ctx) (err error) {
 	if ctx.DateTo != nil {
 		j.log.WithFields(logrus.Fields{"operation": "Sync"}).Infof("%s fetching till %v", j.URL, ctx.DateTo)
 	}
+	j.getCachedContent()
 	// NOTE: Non-generic starts here
 	var (
 		sDateFrom string
@@ -1291,8 +1296,7 @@ func (j *DSConfluence) GetModelData(ctx *shared.Ctx, docs []interface{}) (data m
 			SourceTimestamp: updatedOn,
 			Children:        kids,
 		}
-		cacheID := fmt.Sprintf("content-%s", confluenceContentID)
-		isCreated, err := j.cacheProvider.IsKeyCreated(j.endpoint, cacheID)
+		isCreated := isKeyCreated(confluenceContentID)
 		if err != nil {
 			j.log.WithFields(logrus.Fields{"operation": "GetModelData"}).Errorf("error getting cache for endpoint %s. error: %+v", j.endpoint, err)
 			return data, err
@@ -1338,30 +1342,26 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 					contentsStr := "contents"
 					envStr := os.Getenv("STAGE")
 					// Push the event
-					d := make([]map[string]interface{}, 0)
 					for k, v := range data {
 						switch k {
 						case "created":
 							ev, _ := v[0].(insightsConf.ContentCreatedEvent)
-							err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
-							cacheData, err := j.cachedCreatedContent(v)
+							path, err := j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
+							err = j.cachedCreatedContent(v, path)
 							if err != nil {
 								j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("cachedCreatedContent error: %+v", err)
 								return
 							}
-							d = append(d, cacheData...)
 						case "updated":
-							updates, cacheData, err := j.preventUpdateDuplication(v)
+							updates, err := j.preventUpdateDuplication(v)
 							if err != nil {
 								j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("preventUpdateDuplication error: %+v", err)
 								return
 							}
-							if len(cacheData) > 0 {
-								d = append(d, cacheData...)
-							}
+
 							if len(updates) > 0 {
 								ev, _ := updates[0].(insightsConf.ContentUpdatedEvent)
-								err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, updates)
+								_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, updates)
 							}
 						default:
 							err = fmt.Errorf("unknown confluence event type '%s'", k)
@@ -1370,11 +1370,8 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 							break
 						}
 					}
-					if len(d) > 0 {
-						err = j.cacheProvider.Create(j.endpoint, d)
-						if err != nil {
-							j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("error creating cache for endpoint %s. Error: %+v", j.endpoint, err)
-						}
+					if err = j.createCacheFile([]EntityCache{}, ""); err != nil {
+						j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("error creating cache for endpoint %s. Error: %+v", j.endpoint, err)
 					}
 				} else {
 					jsonBytes, err = jsoniter.Marshal(data)
@@ -1567,11 +1564,9 @@ func (j *DSConfluence) AddCacheProvider() {
 	j.endpoint = strings.ReplaceAll(strings.TrimPrefix(strings.TrimPrefix(j.URL, "https://"), "http://"), "/", "-")
 }
 
-func (j *DSConfluence) cachedCreatedContent(v []interface{}) ([]map[string]interface{}, error) {
-	cacheData := make([]map[string]interface{}, 0)
+func (j *DSConfluence) cachedCreatedContent(v []interface{}, path string) error {
 	for _, val := range v {
 		content := val.(insightsConf.ContentCreatedEvent).Payload
-		id := fmt.Sprintf("%s-%s", "content", val.(insightsConf.ContentCreatedEvent).Payload.ID)
 		c := insightsConf.Content{
 			ID:           content.ID,
 			EndpointID:   content.EndpointID,
@@ -1587,22 +1582,24 @@ func (j *DSConfluence) cachedCreatedContent(v []interface{}) ([]map[string]inter
 		}
 		b, err := json.Marshal(c)
 		if err != nil {
-			return cacheData, err
+			return err
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
-		cacheData = append(cacheData, map[string]interface{}{
-			"id": id,
-			"data": map[string]interface{}{
-				contentHashField: contentHash,
-			},
-		})
+		tStamp := content.SyncTimestamp.Unix()
+		cachedSpaces[content.ID] = EntityCache{
+			Timestamp:      fmt.Sprintf("%v", tStamp),
+			EntityID:       content.ID,
+			SourceEntityID: content.ContentID,
+			FileLocation:   path,
+			Hash:           contentHash,
+			Orphaned:       false,
+		}
 	}
-	return cacheData, nil
+	return nil
 }
 
-func (j *DSConfluence) preventUpdateDuplication(v []interface{}) ([]interface{}, []map[string]interface{}, error) {
+func (j *DSConfluence) preventUpdateDuplication(v []interface{}) ([]interface{}, error) {
 	updatedVals := make([]interface{}, 0, len(v))
-	cacheData := make([]map[string]interface{}, 0)
 	for _, val := range v {
 		content := val.(insightsConf.ContentUpdatedEvent).Payload
 		c := insightsConf.Content{
@@ -1620,25 +1617,108 @@ func (j *DSConfluence) preventUpdateDuplication(v []interface{}) ([]interface{},
 		}
 		b, err := json.Marshal(c)
 		if err != nil {
-			return updatedVals, cacheData, nil
+			return updatedVals, nil
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(b))
-		cacheID := fmt.Sprintf("content-%s", content.ID)
-		byt, err := j.cacheProvider.GetFileByKey(j.endpoint, cacheID)
-		if err != nil {
-			return updatedVals, cacheData, nil
+		cacheCon, ok := cachedSpaces[content.ID]
+		if !ok {
+			continue
 		}
-		cachedHash := make(map[string]interface{})
-		err = json.Unmarshal(byt, &cachedHash)
-		if contentHash != cachedHash["contentHash"] {
+		if contentHash != cacheCon.Hash {
 			updatedVals = append(updatedVals, val)
-			cacheData = append(cacheData, map[string]interface{}{
-				"id": cacheID,
-				"data": map[string]interface{}{
-					contentHashField: contentHash,
-				},
-			})
+			cacheCon.Hash = contentHash
+			cachedSpaces[content.ID] = cacheCon
 		}
 	}
-	return updatedVals, cacheData, nil
+	return updatedVals, nil
+}
+
+func (j *DSConfluence) getCachedContent() {
+	comB, err := j.cacheProvider.GetFileByKey(j.endpoint, spacesCacheFile)
+	if err != nil {
+		return
+	}
+	reader := csv.NewReader(bytes.NewBuffer(comB))
+	records, err := reader.ReadAll()
+	if err != nil {
+		return
+	}
+	for i, record := range records {
+		if i == 0 {
+			continue
+		}
+		orphaned, err := strconv.ParseBool(record[5])
+		if err != nil {
+			orphaned = false
+		}
+
+		cachedSpaces[record[1]] = EntityCache{
+			Timestamp:      record[0],
+			EntityID:       record[1],
+			SourceEntityID: record[2],
+			FileLocation:   record[3],
+			Hash:           record[4],
+			Orphaned:       orphaned,
+		}
+	}
+}
+
+func (j *DSConfluence) createCacheFile(cache []EntityCache, path string) error {
+	for _, comm := range cache {
+		comm.FileLocation = path
+		cachedSpaces[comm.EntityID] = comm
+	}
+	records := [][]string{
+		{"timestamp", "entity_id", "source_entity_id", "file_location", "hash", "orphaned"},
+	}
+	for _, c := range cachedSpaces {
+		records = append(records, []string{c.Timestamp, c.EntityID, c.SourceEntityID, c.FileLocation, c.Hash, strconv.FormatBool(c.Orphaned)})
+	}
+
+	csvFile, err := os.Create(spacesCacheFile)
+	if err != nil {
+		return err
+	}
+
+	w := csv.NewWriter(csvFile)
+	err = w.WriteAll(records)
+	if err != nil {
+		return err
+	}
+	err = csvFile.Close()
+	if err != nil {
+		return err
+	}
+	file, err := os.ReadFile(spacesCacheFile)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(spacesCacheFile)
+	if err != nil {
+		return err
+	}
+	err = j.cacheProvider.UpdateFileByKey(j.endpoint, spacesCacheFile, file)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func isKeyCreated(id string) bool {
+	_, ok := cachedSpaces[id]
+	if ok {
+		return true
+	}
+	return false
+}
+
+// EntityCache single commit cache schema
+type EntityCache struct {
+	Timestamp      string `json:"timestamp"`
+	EntityID       string `json:"entity_id"`
+	SourceEntityID string `json:"source_entity_id"`
+	FileLocation   string `json:"file_location"`
+	Hash           string `json:"hash"`
+	Orphaned       bool   `json:"orphaned"`
 }
