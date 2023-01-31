@@ -1559,7 +1559,7 @@ func (j *DSConfluence) createStructuredLogger() {
 
 // AddCacheProvider - adds cache provider
 func (j *DSConfluence) AddCacheProvider() {
-	cacheProvider := cache.NewManager(ConfluenceDataSource, os.Getenv("STAGE"))
+	cacheProvider := cache.NewManager(fmt.Sprintf("v2/%s", ConfluenceDataSource), os.Getenv("STAGE"))
 	j.cacheProvider = *cacheProvider
 	j.endpoint = strings.ReplaceAll(strings.TrimPrefix(strings.TrimPrefix(j.URL, "https://"), "http://"), "/", "-")
 }
