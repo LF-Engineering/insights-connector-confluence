@@ -348,8 +348,8 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 			headers,
 			nil,
 			nil,
-			map[[2]int]struct{}{{200, 200}: {}},                                 // JSON statuses: 200
-			nil,                                                                 // Error statuses
+			map[[2]int]struct{}{{200, 200}: {}}, // JSON statuses: 200
+			nil,                                 // Error statuses
 			map[[2]int]struct{}{{200, 200}: {}, {500, 500}: {}, {404, 404}: {}}, // OK statuses: 200
 			map[[2]int]struct{}{{200, 200}: {}},                                 // Cache statuses: 200
 			false,                                                               // retry
@@ -392,11 +392,9 @@ func (j *DSConfluence) GetHistoricalContents(ctx *shared.Ctx, content map[string
 		if err != nil {
 			return
 		}
-		if !when.Before(dateFrom) && !when.After(dateTo) {
-			result["content_url"] = contentURL
-			result["ancestors"] = ancestors
-			contents = append(contents, result)
-		}
+		result["content_url"] = contentURL
+		result["ancestors"] = ancestors
+		contents = append(contents, result)
 		if ctx.Debug > 2 {
 			j.log.WithFields(logrus.Fields{"operation": "GetHistoricalContents"}).Debugf("%s: v%d %+v,%v (%s)", id, version, when, latest, url)
 		}
