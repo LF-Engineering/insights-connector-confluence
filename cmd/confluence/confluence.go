@@ -68,7 +68,7 @@ var (
 
 // Publisher - publish data to S3
 type Publisher interface {
-	PushEvents(action, source, eventType, subEventType, env string, data []interface{}) (string, error)
+	PushEvents(action, source, eventType, subEventType, env string, data []interface{}, endpoint string) (string, error)
 }
 
 // DSConfluence - DS implementation for confluence - does nothing at all, just presents a skeleton code
@@ -1344,7 +1344,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 						switch k {
 						case "created":
 							ev, _ := v[0].(insightsConf.ContentCreatedEvent)
-							path, err := j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v)
+							path, err := j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, v, j.endpoint)
 							err = j.cachedCreatedContent(v, path)
 							if err != nil {
 								j.log.WithFields(logrus.Fields{"operation": "ConfluenceEnrichItems"}).Errorf("cachedCreatedContent error: %+v", err)
@@ -1359,7 +1359,7 @@ func (j *DSConfluence) ConfluenceEnrichItems(ctx *shared.Ctx, thrN int, items []
 
 							if len(updates) > 0 {
 								ev, _ := updates[0].(insightsConf.ContentUpdatedEvent)
-								_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, updates)
+								_, err = j.Publisher.PushEvents(ev.Event(), insightsStr, ConfluenceDataSource, contentsStr, envStr, updates, j.endpoint)
 							}
 						default:
 							err = fmt.Errorf("unknown confluence event type '%s'", k)
